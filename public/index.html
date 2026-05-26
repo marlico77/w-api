@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZAP API Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+    
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-text">Z-api</span>
+                <span class="logo-badge">Local</span>
+            </div>
+            
+            <div class="menu-label">MENU PRINCIPAL</div>
+            <nav>
+                <a href="#" class="nav-item" data-target="view-dashboard"><i class="fa-solid fa-chart-simple"></i> Dashboard</a>
+                <a href="#" class="nav-item active" data-target="view-instances"><i class="fa-solid fa-desktop"></i> Instâncias Web</a>
+                <div class="menu-label mt-4">MENSAGENS</div>
+                <a href="#" class="nav-item" data-target="view-campaigns"><i class="fa-solid fa-paper-plane"></i> Mensagens Automáticas</a>
+                <div class="menu-label mt-4">SISTEMA</div>
+                <a href="#" class="nav-item" data-target="view-projects"><i class="fa-solid fa-code"></i> Projetos (API)</a>
+                <a href="#" class="nav-item" data-target="view-documentation"><i class="fa-solid fa-book"></i> Documentação</a>
+                <a href="#" class="nav-item"><i class="fa-solid fa-gear"></i> Configurações</a>
+            </nav>
+        </aside>
+
+        <!-- Main Wrapper -->
+        <div class="main-wrapper">
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="page-title">
+                    <h2 id="page-title-text">Instâncias web</h2>
+                    <span id="page-subtitle-text">Listagem de instâncias web</span>
+                </div>
+                <div class="topbar-right">
+                    <div class="user-profile">
+                        <div class="avatar">MS</div>
+                        <div class="user-info">
+                            <strong>Marlon Souza</strong>
+                            <span>Admin Local</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Content -->
+            <main class="content">
+                
+                <!-- VIEW: INSTÂNCIAS (Tabela idêntica ao Z-API) -->
+                <div id="view-instances" class="view-section">
+                    
+                    <div class="stats-grid-3">
+                        <div class="stat-card dark">
+                            <div class="stat-icon blue"><i class="fa-solid fa-server"></i></div>
+                            <div class="stat-info">
+                                <span>Total de instâncias web</span>
+                                <h3 id="lbl-total-inst">0</h3>
+                                <small>Total de instâncias executando</small>
+                            </div>
+                        </div>
+                        <div class="stat-card dark">
+                            <div class="stat-icon green"><i class="fa-solid fa-check-circle"></i></div>
+                            <div class="stat-info">
+                                <span>Instâncias conectadas</span>
+                                <h3 id="lbl-total-conn">0</h3>
+                                <small>Total de instâncias web conectadas</small>
+                            </div>
+                        </div>
+                        <div class="stat-card dark">
+                            <div class="stat-icon red"><i class="fa-solid fa-power-off"></i></div>
+                            <div class="stat-info">
+                                <span>Instâncias desconectadas</span>
+                                <h3 id="lbl-total-disc">0</h3>
+                                <small>Total de instâncias web desconectadas</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="table-toolbar">
+                        <div class="filter-group">
+                            <button class="btn-filter active">Todas</button>
+                            <button class="btn-filter">Conectadas</button>
+                            <button class="btn-filter">Desconectadas</button>
+                        </div>
+                        <div class="search-box">
+                            <i class="fa-solid fa-search"></i>
+                            <input type="text" placeholder="Busque aqui...">
+                        </div>
+                        <div class="actions-group">
+                            <button class="btn-action green" id="btn-add-instance"><i class="fa-solid fa-plus"></i> Adicionar</button>
+                        </div>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="instances-table">
+                            <thead>
+                                <tr>
+                                    <th>NOME</th>
+                                    <th>TIPO</th>
+                                    <th>STATUS</th>
+                                    <th>ID DA INSTÂNCIA</th>
+                                    <th>TOKEN</th>
+                                    <th>CRIADO EM</th>
+                                    <th>AÇÕES</th>
+                                </tr>
+                            </thead>
+                            <tbody id="instances-tbody">
+                                <!-- Instâncias via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+
+                <!-- VIEW: DASHBOARD DA INSTÂNCIA (A tela de ver QR/Mensagens) -->
+                <div id="view-dashboard" class="view-section hidden">
+                    <!-- ... restante do dashboard ... -->
+                    <div class="banner-green">
+                        <div class="banner-content">
+                            <div class="banner-icon"><i class="fa-brands fa-whatsapp"></i></div>
+                            <div>
+                                <span class="badge">GERENCIANDO</span>
+                                <h3>Instância: <span id="current-instance-id">Nenhuma</span></h3>
+                                <p>Gerencie o envio e recebimento de mensagens desta instância específica.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="content-layout">
+                        <!-- Left Column (QR and Form) -->
+                        <div class="column-left">
+                            <div class="panel">
+                                <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;">
+                                    <h3>Conexão</h3>
+                                    <div>
+                                        <button class="btn-action" style="background:var(--primary); color:#fff; font-size:0.8rem; border:none; margin-right:5px;" onclick="openSyncContactsModal(activeInstanceId)"><i class="fa-solid fa-address-book"></i> Importar Contatos</button>
+                                        <button class="btn-action red-outline" id="btn-disconnect-instance" style="font-size:0.8rem;"><i class="fa-solid fa-power-off"></i> Desconectar</button>
+                                    </div>
+                                </div>
+                                
+                                <div id="state-qr" class="state-container hidden">
+                                    <p style="margin-bottom: 15px; color: var(--text-muted);">Escaneie o QR Code abaixo.</p>
+                                    <div id="qrcode-box" class="qr-wrapper"></div>
+                                </div>
+
+                                <div id="state-starting" class="state-container">
+                                    <div class="loader"></div>
+                                    <p style="margin-top: 15px; color: var(--text-muted);">Inicializando...</p>
+                                </div>
+
+                                <div id="state-connected" class="state-container hidden">
+                                    <div class="success-circle"><i class="fa-solid fa-check"></i></div>
+                                    <h2 style="color:var(--primary);">Conectado</h2>
+                                    
+                                    <form id="send-form" class="send-form" style="margin-top:20px;">
+                                        <div class="form-group">
+                                            <input type="text" id="numero" placeholder="Número Destino (ex: 5511999999999)" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <textarea id="mensagem" rows="2" placeholder="Mensagem..." required></textarea>
+                                        </div>
+                                        <button type="submit" class="btn-submit" id="btn-send">Enviar</button>
+                                        <div id="send-feedback" class="feedback"></div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Column (Logs) -->
+                        <div class="column-right">
+                            <div class="counters-row">
+                                <div class="stat-card solid-green">
+                                    <div class="counter-header"><i class="fa-solid fa-paper-plane"></i> Enviado</div>
+                                    <h2 id="count-out">0</h2>
+                                </div>
+                                <div class="stat-card solid-orange">
+                                    <div class="counter-header"><i class="fa-solid fa-inbox"></i> Recebido</div>
+                                    <h2 id="count-in">0</h2>
+                                </div>
+                            </div>
+
+                            <div class="panel mt-4">
+                                <div class="panel-header">
+                                    <h3>Logs Recentes</h3>
+                                </div>
+                                <div class="logs-container" id="logs-container"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW: FORMULÁRIO NOVA INSTÂNCIA -->
+                <div id="view-form" class="view-section hidden">
+                    <form id="instance-settings-form">
+                        
+                        <!-- DADOS DA INSTÂNCIA -->
+                        <div class="panel mb-4">
+                            <div class="panel-header">
+                                <h3>Dados da instância web</h3>
+                            </div>
+                            <div class="form-group mt-4">
+                                <label>Nome da instância</label>
+                                <div class="input-icon-wrapper">
+                                    <i class="fa-solid fa-id-card"></i>
+                                    <input type="text" id="cfg_id" placeholder="Nome da instância" required>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <label>Token de integração <i class="fa-regular fa-copy"></i></label>
+                                    <button type="button" class="btn-text-green" id="btn-gen-token"><i class="fa-solid fa-rotate-right"></i> Gerar novo token</button>
+                                </div>
+                                <div class="input-icon-wrapper disabled-look">
+                                    <i class="fa-solid fa-key"></i>
+                                    <input type="text" id="cfg_token" readonly placeholder="(Gerado automaticamente)">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CONFIGURE WEBHOOKS -->
+                        <div class="panel mb-4">
+                            <div class="panel-header" style="border:none; padding-bottom:0;">
+                                <h3 style="color:var(--text-muted); font-size:0.8rem; letter-spacing:1px; margin-bottom:5px;">CONFIGURE WEBHOOKS</h3>
+                                <p style="font-size:0.85rem; color:var(--text-muted);">Configurar webhooks para sua instância permite receber os eventos dela.</p>
+                            </div>
+                            <div class="form-grid mt-4">
+                                <div>
+                                    <div class="form-group">
+                                        <label>Ao enviar</label>
+                                        <div class="input-icon-wrapper">
+                                            <i class="fa-solid fa-angles-right"></i>
+                                            <input type="url" id="cfg_wh_out" placeholder="Ao enviar">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Ao desconectar</label>
+                                        <div class="input-icon-wrapper">
+                                            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                                            <input type="url" id="cfg_wh_disc" placeholder="Ao desconectar">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Ao receber</label>
+                                        <div class="input-icon-wrapper">
+                                            <i class="fa-solid fa-angles-left"></i>
+                                            <input type="url" id="cfg_wh_in" placeholder="Ao receber">
+                                        </div>
+                                        <div class="toggle-wrapper mt-2">
+                                            <label class="switch">
+                                                <input type="checkbox" id="cfg_notify_own">
+                                                <span class="slider round"></span>
+                                            </label>
+                                            <span class="toggle-label">Notificar as enviadas por mim também</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="form-group">
+                                        <label>Presença do chat</label>
+                                        <div class="input-icon-wrapper">
+                                            <i class="fa-solid fa-location-dot"></i>
+                                            <input type="url" id="cfg_wh_pres" placeholder="Presença do chat">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Receber status da mensagem</label>
+                                        <div class="input-icon-wrapper">
+                                            <i class="fa-solid fa-wave-square"></i>
+                                            <input type="url" id="cfg_wh_stat" placeholder="Receber status da mensagem">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Ao conectar</label>
+                                        <div class="input-icon-wrapper">
+                                            <i class="fa-solid fa-check"></i>
+                                            <input type="url" id="cfg_wh_conn" placeholder="Ao conectar">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CONFIGURAÇÕES DO WHATSAPP -->
+                        <div class="panel mb-4">
+                            <div class="panel-header" style="border:none; padding-bottom:0;">
+                                <h3 style="color:var(--text-muted); font-size:0.8rem; letter-spacing:1px; margin-bottom:15px;">CONFIGURAÇÕES DO WHATSAPP</h3>
+                            </div>
+                            <div class="toggles-row">
+                                <div class="toggle-wrapper">
+                                    <label class="switch">
+                                        <input type="checkbox" id="cfg_opt_reject">
+                                        <span class="slider round"></span>
+                                    </label>
+                                    <span class="toggle-label">Rejeitar chamadas automático</span>
+                                </div>
+                                <div class="toggle-wrapper">
+                                    <label class="switch">
+                                        <input type="checkbox" id="cfg_opt_read">
+                                        <span class="slider round"></span>
+                                    </label>
+                                    <span class="toggle-label">Ler mensagens automático</span>
+                                </div>
+                                <div class="toggle-wrapper">
+                                    <label class="switch">
+                                        <input type="checkbox" id="cfg_opt_read_status">
+                                        <span class="slider round"></span>
+                                    </label>
+                                    <span class="toggle-label">Ler status automaticamente</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CONFIGURAÇÕES GERAIS -->
+                        <div class="panel mb-4">
+                            <div class="panel-header" style="border:none; padding-bottom:0;">
+                                <h3 style="color:var(--text-muted); font-size:0.8rem; letter-spacing:1px; margin-bottom:15px;">CONFIGURAÇÕES GERAIS</h3>
+                            </div>
+                            <div class="toggle-wrapper">
+                                <label class="switch">
+                                    <input type="checkbox" id="cfg_opt_no_queue">
+                                    <span class="slider round"></span>
+                                </label>
+                                <span class="toggle-label">Desabilitar enfileiramento quando whatsapp estiver desconectado</span>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="button" class="btn-cancel" onclick="switchView('view-instances')">Cancelar</button>
+                            <button type="submit" class="btn-save" id="btn-save-instance">Salvar</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- VIEW: CAMPANHAS (MENSAGENS AUTOMÁTICAS) -->
+                <div id="view-campaigns" class="view-section hidden">
+                    <div class="panel">
+                        <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3>Mensagens Automáticas (Anti-Spam)</h3>
+                            <button class="btn-action green" onclick="openNewCampaignModal()"><i class="fa-solid fa-plus"></i> Nova Campanha</button>
+                        </div>
+                        <div class="table-container mt-4">
+                            <table class="instances-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Campanha</th>
+                                        <th>Instância</th>
+                                        <th>Agendamento</th>
+                                        <th>Progresso</th>
+                                        <th>Status</th>
+                                        <th>AÇÕES</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-campaigns">
+                                    <!-- Preenchido via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW: PROJETOS (API) -->
+                <div id="view-projects" class="view-section hidden">
+                    <div class="panel">
+                        <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3>Projetos e Chaves de API</h3>
+                            <button class="btn-action green" onclick="openNewProjectModal()"><i class="fa-solid fa-plus"></i> Novo Projeto</button>
+                        </div>
+                        <div class="table-container mt-4">
+                            <table class="instances-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Nome do Projeto</th>
+                                        <th>Site / Sistema</th>
+                                        <th>Chave de API (Secret)</th>
+                                        <th>Criado em</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-projects">
+                                    <!-- Populated via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW: DOCUMENTAÇÃO -->
+                <div id="view-documentation" class="view-section hidden">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3>Documentação do Sistema e API</h3>
+                        </div>
+                        <div class="doc-content" style="padding: 20px; line-height: 1.6; color: var(--text-muted);">
+                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.1rem;"><i class="fa-solid fa-code"></i> Consumo da API Externa</h4>
+                            <p>O sistema permite que plataformas externas enviem mensagens de texto através das suas instâncias conectadas. Para isso, você deve criar um "Projeto" no menu lateral e gerar uma Chave de API.</p>
+                            
+                            <div style="background:rgba(0,0,0,0.3); border-radius:6px; padding:15px; margin: 15px 0;">
+                                <p style="color:#fff; font-weight:600; margin-bottom:10px;">Endpoint de Envio de Texto (POST)</p>
+                                <code style="display:block; padding:10px; background:var(--bg-main); border:1px solid var(--border); border-radius:4px; color:var(--primary); word-break: break-all; font-family: monospace;">
+                                    http://[SEU_IP_OU_DOMINIO]/api/v1/instances/[ID_DA_INSTANCIA]/send-text
+                                </code>
+                            </div>
+
+                            <h5 style="color:#fff; margin-top:20px;">Cabeçalhos Obrigatórios (Headers)</h5>
+                            <ul style="margin-left: 20px; margin-bottom: 15px;">
+                                <li><code>Content-Type: application/json</code></li>
+                                <li><code>x-api-key: sk-live-... [SUA_CHAVE_GERADA]</code> (ou <code>Authorization: Bearer sk-live-...</code>)</li>
+                            </ul>
+
+                            <h5 style="color:#fff;">Corpo da Requisição (JSON)</h5>
+                            <pre style="background:var(--bg-main); border:1px solid var(--border); padding:15px; border-radius:6px; overflow-x:auto; margin-top:10px; color:#fff; font-family: monospace;">{
+  "number": "5511999999999",
+  "message": "Olá! Esta é uma mensagem de teste enviada pela API."
+}</pre>
+
+                            <hr style="border:0; border-top:1px solid var(--border); margin:30px 0;">
+
+                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.1rem;"><i class="fa-solid fa-paper-plane"></i> Campanhas Automáticas e Recorrência</h4>
+                            <p>No menu de <strong>Mensagens Automáticas</strong>, você pode programar o envio de mensagens em massa para seus contatos.</p>
+                            <ul style="margin-left: 20px; margin-bottom: 15px;">
+                                <li><strong>Base de Contatos:</strong> Para uma campanha rodar, primeiro certifique-se de acessar <em>Instâncias Web > Ações > Sincronizar Contatos</em> para baixar a agenda do aparelho.</li>
+                                <li><strong>Mensagens Recorrentes:</strong> Ao marcar uma campanha como recorrente, o robô automaticamente refaz a fila de contatos quando terminar, aguardando o próximo horário e dia agendados (Ex: "Toda Seg, Qua às 09:00 e 15:00").</li>
+                                <li><strong>Proteção Anti-Spam:</strong> O sistema possui um intervalo automático de segurança de aproximadamente 37 segundos entre o envio de cada mensagem da fila, evitando bloqueios do WhatsApp.</li>
+                            </ul>
+
+                            <hr style="border:0; border-top:1px solid var(--border); margin:30px 0;">
+
+                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.1rem;"><i class="fa-solid fa-qrcode"></i> Instâncias Web</h4>
+                            <p>As instâncias representam o seu aparelho celular conectado ao sistema via WhatsApp Web.</p>
+                            <ul style="margin-left: 20px;">
+                                <li>Para conectar, clique em "Nova Instância", gere um nome, salve e então clique no ícone de QR Code para escaneá-lo com o aplicativo do celular.</li>
+                                <li><strong>Atenção:</strong> Mantenha o seu aparelho celular conectado à internet. O sistema depende que o WhatsApp do celular consiga sincronizar as mensagens com a rede.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <!-- MODAL: NOVA CAMPANHA -->
+    <!-- MODAL: NOVA CAMPANHA -->
+    <div id="modal-campaign" class="modal hidden">
+        <div class="modal-content" style="background:var(--bg-main); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8);">
+            <div class="modal-header" style="background: rgba(0,0,0,0.2);">
+                <h2 id="modal-campaign-title">Criar Mensagem Automática</h2>
+                <button class="btn-close" onclick="closeModal('modal-campaign')"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-campaign">
+                    <div class="form-group">
+                        <label>Nome da Campanha</label>
+                        <div class="input-icon-wrapper">
+                            <i class="fa-solid fa-bullhorn"></i>
+                            <input type="text" id="camp_name" placeholder="Ex: Promoção Dia das Mães" required>
+                        </div>
+                    </div>
+                    <div class="form-grid mt-4">
+                        <div class="form-group">
+                            <label>Selecione a Instância de Disparo</label>
+                            <div class="input-icon-wrapper">
+                                <i class="fa-solid fa-server"></i>
+                                <select id="camp_instance" required onchange="loadInstanceContactsForCampaign(this.value)">
+                                    <option value="">-- Escolha uma Instância --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Data e Hora do Início</label>
+                            <div class="input-icon-wrapper">
+                                <i class="fa-solid fa-calendar"></i>
+                                <input type="datetime-local" id="camp_datetime" required style="color-scheme: dark;">
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group mt-4">
+                        <label>Mensagem Recorrente (Repetição)?</label>
+                        <div class="toggle-wrapper" style="margin-top: 10px;">
+                            <label class="switch">
+                                <input type="checkbox" id="camp_is_recurring" onchange="toggleRecurrenceUI()">
+                                <span class="slider round"></span>
+                            </label>
+                            <span class="toggle-label" style="color:#fff;">Sim, repetir esta campanha automaticamente</span>
+                        </div>
+                    </div>
+
+                    <div id="recurrence_section" class="hidden" style="background: rgba(0,0,0,0.15); padding: 15px; border-radius: 6px; border: 1px solid var(--border); margin-top: 15px;">
+                        <label style="display:block; margin-bottom:10px;">Dias da Semana</label>
+                        <div class="days-selector" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 15px;">
+                            <label class="day-chip"><input type="checkbox" class="camp-day-cb" value="0"> Dom</label>
+                            <label class="day-chip"><input type="checkbox" class="camp-day-cb" value="1"> Seg</label>
+                            <label class="day-chip"><input type="checkbox" class="camp-day-cb" value="2"> Ter</label>
+                            <label class="day-chip"><input type="checkbox" class="camp-day-cb" value="3"> Qua</label>
+                            <label class="day-chip"><input type="checkbox" class="camp-day-cb" value="4"> Qui</label>
+                            <label class="day-chip"><input type="checkbox" class="camp-day-cb" value="5"> Sex</label>
+                            <label class="day-chip"><input type="checkbox" class="camp-day-cb" value="6"> Sáb</label>
+                        </div>
+                        
+                        <label style="display:block; margin-bottom:10px;">Horários (Adicione quantos quiser)</label>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <div class="input-icon-wrapper" style="flex:1;">
+                                <i class="fa-solid fa-clock"></i>
+                                <input type="time" id="camp_time_input" style="color-scheme: dark;">
+                            </div>
+                            <button type="button" class="btn-action green" onclick="addRecurrenceTime()"><i class="fa-solid fa-plus"></i> Adicionar</button>
+                        </div>
+                        <div id="recurrence_times_list" style="display:flex; gap:10px; flex-wrap:wrap; margin-top:15px;"></div>
+                    </div>
+                    
+                    <div class="form-group mt-4">
+                        <label>Contatos Destinos (Salvos no Banco)</label>
+                        <div class="contacts-selection-box" id="camp_contacts_box" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05); padding:15px; border-radius:6px; max-height:200px; overflow-y:auto;">
+                            <p style="color:var(--text-muted); font-size:0.9rem; text-align:center;">Selecione uma instância para carregar os contatos.</p>
+                        </div>
+                        <div style="margin-top:10px;">
+                            <button type="button" class="btn-action green" style="font-size:0.75rem; padding: 5px 10px;" onclick="selectAllContactsCampaign()"><i class="fa-solid fa-check-double"></i> Selecionar Todos</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group mt-4">
+                        <label>Mensagem</label>
+                        <textarea id="camp_message" rows="5" required placeholder="Digite a mensagem que será enviada. O sistema respeitará automaticamente o tempo Anti-Spam (37s) entre cada contato." style="width:100%; padding:15px; border-radius:6px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:#fff; font-family: 'Inter', sans-serif; resize:vertical; outline:none;"></textarea>
+                    </div>
+
+                    <div class="form-actions" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 15px;">
+                        <button type="button" class="btn-cancel" onclick="closeModal('modal-campaign')">Cancelar</button>
+                        <button type="submit" class="btn-save" id="btn-save-camp">Agendar Disparo</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: SINCRONIZAR CONTATOS (RAW) -->
+    <div id="modal-contacts" class="modal hidden">
+        <div class="modal-content" style="background:var(--bg-main); max-width: 600px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8);">
+            <div class="modal-header" style="background: rgba(0,0,0,0.2);">
+                <h2>Importar Contatos do Aparelho</h2>
+                <button class="btn-close" onclick="closeModal('modal-contacts')"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <p style="color:var(--text-muted); margin-bottom:20px; font-size:0.9rem; line-height:1.5;">Esses contatos foram baixados diretamente do WhatsApp web. Selecione quais você deseja salvar no Banco de Dados para poder usar nas Campanhas de Mensagens Automáticas.</p>
+                
+                <div class="form-group">
+                    <div class="input-icon-wrapper">
+                        <i class="fa-solid fa-search"></i>
+                        <input type="text" id="search_raw_contacts" placeholder="Buscar contato..." onkeyup="filterRawContacts()">
+                    </div>
+                </div>
+                
+                <div style="margin-bottom:15px; display:flex; gap:10px; margin-top: 10px;">
+                    <button type="button" class="btn-action green" style="font-size:0.75rem; padding: 5px 10px;" onclick="selectAllRawContacts(true)"><i class="fa-solid fa-check-double"></i> Selecionar Todos</button>
+                    <button type="button" class="btn-action red-outline" style="font-size:0.75rem; padding: 5px 10px;" onclick="selectAllRawContacts(false)"><i class="fa-solid fa-xmark"></i> Desmarcar</button>
+                </div>
+                
+                <div class="contacts-selection-box" id="raw_contacts_box" style="background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.05); padding:15px; border-radius:6px; max-height:300px; overflow-y:auto;">
+                    <div class="loader" id="loader-contacts"></div>
+                </div>
+
+                <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:15px; margin-top:15px;">
+                <button class="btn-action" style="background:transparent; border:1px solid var(--border); color:#fff;" onclick="closeModal('modal-contacts')">Cancelar</button>
+                <button class="btn-action" id="btn-save-all-contacts" style="background:var(--orange); color:#fff; border:none;" onclick="saveAllContacts()">Salvar Todos</button>
+                <button class="btn-action" id="btn-save-contacts" style="background:var(--primary); color:#fff; border:none;" onclick="saveSelectedContacts()">Salvar Selecionados</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: NOVO PROJETO (API) -->
+    <div id="modal-project" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Criar Novo Projeto (Chave API)</h2>
+                <button class="btn-close" onclick="closeModal('modal-project')"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-project">
+                    <div class="form-group">
+                        <label>Nome do Projeto</label>
+                        <input type="text" id="project_name" required placeholder="Ex: Meu ERP, Loja Virtual">
+                    </div>
+                    <div class="form-group mt-4">
+                        <label>Site / URL do Sistema (Opcional)</label>
+                        <input type="text" id="project_website" placeholder="Ex: https://meusistema.com">
+                    </div>
+
+                    <div class="form-actions" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 15px;">
+                        <button type="button" class="btn-cancel" onclick="closeModal('modal-project')">Cancelar</button>
+                        <button type="submit" class="btn-save" id="btn-save-project">Gerar Chave de API</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
