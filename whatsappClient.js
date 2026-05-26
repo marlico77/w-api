@@ -58,6 +58,25 @@ async function createInstance(configData) {
         puppeteerOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
     }
 
+    // Limpar arquivos de trava (lock) antigos do Chromium/Puppeteer se existirem
+    const sessionFolder = path.join(__dirname, '.wwebjs_auth', `session-${instanceId}`);
+    const lockFiles = [
+        path.join(sessionFolder, 'Default', 'LOCK'),
+        path.join(sessionFolder, 'LOCK'),
+        path.join(sessionFolder, 'SingletonLock'),
+        path.join(sessionFolder, 'DevToolsActivePort')
+    ];
+    for (const file of lockFiles) {
+        try {
+            if (fs.existsSync(file)) {
+                fs.unlinkSync(file);
+                console.log(`[${instanceId}] Limpeza preventiva: Arquivo de trava removido (${path.basename(file)})`);
+            }
+        } catch (e) {
+            // Ignora se o arquivo estiver bloqueado ou não puder ser apagado
+        }
+    }
+
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: instanceId }),
         puppeteer: puppeteerOptions
@@ -205,6 +224,21 @@ async function updateInstanceConfig(configData) {
     }
 }
 
+async function destroyAllInstances() {
+    console.log('[Sistema] Finalizando todas as instâncias do WhatsApp de forma limpa...');
+    for (const [id, instance] of instances.entries()) {
+        if (instance.client) {
+            try {
+                console.log(`[Sistema] Fechando Puppeteer para a instância: ${id}`);
+                await instance.client.destroy();
+            } catch (e) {
+                console.error(`[Sistema] Erro ao fechar cliente da instância ${id}:`, e.message);
+            }
+        }
+    }
+    instances.clear();
+}
+
 module.exports = {
     instances,
     createInstance,
@@ -212,6 +246,7 @@ module.exports = {
     restoreSessions,
     deleteInstance,
     disconnectInstance,
+    destroyAllInstances,
     addMessageLog,
     MessageMedia
 };
