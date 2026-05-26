@@ -41,11 +41,18 @@ async function createInstance(configData) {
         messages: []
     };
 
+    const puppeteerOptions = {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+    };
+
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        puppeteerOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: instanceId }),
-        puppeteer: {
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-        }
+        puppeteer: puppeteerOptions
     });
 
     instanceData.client = client;
