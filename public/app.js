@@ -566,6 +566,7 @@ window.fetchProjects = async () => {
                 <tr>
                     <td>#${p.id}</td>
                     <td><strong>${p.name}</strong></td>
+                    <td><span class="badge" style="background:var(--primary); color:#fff; font-size:0.8rem; padding:3px 8px; border-radius:4px;">${p.instance_id || 'Não vinculada'}</span></td>
                     <td><a href="${p.website}" target="_blank" style="color:var(--primary); text-decoration:none;">${p.website || '-'}</a></td>
                     <td>
                         <div style="display:flex; align-items:center; gap:10px;">
@@ -575,6 +576,7 @@ window.fetchProjects = async () => {
                     </td>
                     <td>${p.created_at}</td>
                     <td>
+                        <button class="btn-action" style="padding: 5px 10px; background: rgba(52, 152, 219, 0.2); color: #3498db; border: none; margin-right: 5px; border-radius: 4px;" onclick="showProjectInstructions('${p.instance_id}', '${p.api_key}')" title="Instruções de Integração"><i class="fa-solid fa-code"></i></button>
                         <button class="btn-action red-outline" onclick="deleteProject(${p.id})"><i class="fa-solid fa-trash"></i></button>
                     </td>
                 </tr>
@@ -585,9 +587,42 @@ window.fetchProjects = async () => {
     }
 };
 
-window.openNewProjectModal = () => {
+window.openNewProjectModal = async () => {
     document.getElementById('form-project').reset();
+    
+    // Popular instâncias
+    const select = document.getElementById('project_instance');
+    select.innerHTML = '<option value="">-- Escolha uma Instância --</option>';
+    try {
+        const res = await fetch(`${API_BASE}/api/instances`);
+        const insts = await res.json();
+        insts.forEach(i => {
+            select.innerHTML += `<option value="${i.id}">${i.id}</option>`;
+        });
+    } catch (e) {
+        console.error("Erro ao carregar instâncias para o projeto", e);
+    }
+    
     document.getElementById('modal-project').classList.remove('hidden');
+};
+
+window.showProjectInstructions = (instanceId, apiKey) => {
+    const origin = window.location.origin;
+    const endpoint = `${origin}/api/v1/instances/${instanceId}/send-text`;
+    const headers = `Content-Type: application/json\nx-api-key: ${apiKey}`;
+    
+    document.getElementById('inst-id-placeholder').innerText = instanceId;
+    document.getElementById('inst-endpoint-placeholder').innerText = endpoint;
+    document.getElementById('inst-headers-placeholder').innerText = headers;
+    
+    window.lastInstApiKey = apiKey;
+    
+    document.getElementById('modal-project-instructions').classList.remove('hidden');
+};
+
+window.copyHeadersToClipboard = () => {
+    const headers = `Content-Type: application/json\nx-api-key: ${window.lastInstApiKey}`;
+    copyToClipboard(headers);
 };
 
 document.getElementById('form-project').addEventListener('submit', async (e) => {
@@ -595,6 +630,7 @@ document.getElementById('form-project').addEventListener('submit', async (e) => 
     const btn = document.getElementById('btn-save-project');
     const name = document.getElementById('project_name').value;
     const website = document.getElementById('project_website').value;
+    const instanceId = document.getElementById('project_instance').value;
     
     btn.disabled = true;
     btn.textContent = 'Gerando...';
@@ -603,13 +639,19 @@ document.getElementById('form-project').addEventListener('submit', async (e) => 
         const res = await fetch(`${API_BASE}/api/projects`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, website })
+            body: JSON.stringify({ name, website, instanceId })
         });
         if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
         
         showToast('Projeto criado e Chave de API gerada!', 'success');
         closeModal('modal-project');
         fetchProjects();
+        
+        // Abre automaticamente as instruções com os dados para o desenvolvedor
+        setTimeout(() => {
+            showProjectInstructions(data.project.instance_id, data.project.api_key);
+        }, 500);
     } catch (e) {
         alert(e.message);
     } finally {

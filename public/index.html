@@ -382,6 +382,7 @@
                                     <tr>
                                         <th>ID</th>
                                         <th>Nome do Projeto</th>
+                                        <th>Instância Vinculada</th>
                                         <th>Site / Sistema</th>
                                         <th>Chave de API (Secret)</th>
                                         <th>Criado em</th>
@@ -595,6 +596,15 @@
                         <input type="text" id="project_name" required placeholder="Ex: Meu ERP, Loja Virtual">
                     </div>
                     <div class="form-group mt-4">
+                        <label>Instância Vinculada (WhatsApp)</label>
+                        <div class="input-icon-wrapper">
+                            <i class="fa-solid fa-server"></i>
+                            <select id="project_instance" required>
+                                <option value="">-- Escolha uma Instância --</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group mt-4">
                         <label>Site / URL do Sistema (Opcional)</label>
                         <input type="text" id="project_website" placeholder="Ex: https://meusistema.com">
                     </div>
@@ -604,6 +614,50 @@
                         <button type="submit" class="btn-save" id="btn-save-project">Gerar Chave de API</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: INSTRUÇÕES DE INTEGRAÇÃO (API) -->
+    <div id="modal-project-instructions" class="modal hidden">
+        <div class="modal-content" style="max-width: 650px; background: var(--bg-main); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8);">
+            <div class="modal-header" style="background: rgba(0,0,0,0.2);">
+                <h2><i class="fa-solid fa-code"></i> Instruções de Integração</h2>
+                <button class="btn-close" onclick="closeModal('modal-project-instructions')"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="modal-body" style="color: var(--text-muted); line-height: 1.6;">
+                <p style="margin-bottom:15px;">Use as credenciais abaixo para configurar a integração no seu sistema financeiro/ERP para enviar mensagens automáticas através da instância <strong id="inst-id-placeholder" style="color:#fff;"></strong>.</p>
+                
+                <div style="background:rgba(0,0,0,0.3); border-radius:6px; padding:15px; margin: 15px 0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="color:#fff; font-weight:600;">Método & Endpoint (POST)</span>
+                        <button type="button" class="btn-action" style="padding:2px 6px; font-size:0.7rem; background:rgba(255,255,255,0.1); border:none; color:#fff;" onclick="copyToClipboard(document.getElementById('inst-endpoint-placeholder').innerText)">Copiar</button>
+                    </div>
+                    <code id="inst-endpoint-placeholder" style="display:block; padding:10px; background:var(--bg-main); border:1px solid var(--border); border-radius:4px; color:var(--primary); word-break: break-all; font-family: monospace;"></code>
+                </div>
+
+                <div style="background:rgba(0,0,0,0.3); border-radius:6px; padding:15px; margin: 15px 0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="color:#fff; font-weight:600;">Cabeçalhos (Headers)</span>
+                        <button type="button" class="btn-action" style="padding:2px 6px; font-size:0.7rem; background:rgba(255,255,255,0.1); border:none; color:#fff;" onclick="copyHeadersToClipboard()">Copiar</button>
+                    </div>
+                    <pre id="inst-headers-placeholder" style="margin:0; padding:10px; background:var(--bg-main); border:1px solid var(--border); border-radius:4px; color:#fff; font-family: monospace; white-space: pre-wrap; font-size:0.85rem;"></pre>
+                </div>
+
+                <div style="background:rgba(0,0,0,0.3); border-radius:6px; padding:15px; margin: 15px 0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="color:#fff; font-weight:600;">Exemplo de JSON (Body)</span>
+                        <button type="button" class="btn-action" style="padding:2px 6px; font-size:0.7rem; background:rgba(255,255,255,0.1); border:none; color:#fff;" onclick="copyToClipboard(document.getElementById('inst-body-placeholder').innerText)">Copiar</button>
+                    </div>
+                    <pre id="inst-body-placeholder" style="margin:0; padding:10px; background:var(--bg-main); border:1px solid var(--border); border-radius:4px; color:#fff; font-family: monospace; font-size:0.85rem;">{
+  "number": "5511999999999",
+  "message": "Olá! Esta é uma mensagem de teste enviada pela API."
+}</pre>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:15px; margin-top:15px;">
+                    <button type="button" class="btn-action" style="background:var(--primary); color:#fff; border:none; padding:8px 15px; border-radius:4px;" onclick="closeModal('modal-project-instructions')">Fechar</button>
+                </div>
             </div>
         </div>
     </div>

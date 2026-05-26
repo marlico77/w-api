@@ -64,8 +64,11 @@ const initDb = async () => {
             name TEXT,
             website TEXT,
             api_key TEXT UNIQUE,
+            instance_id TEXT,
             created_at TEXT
         )`);
+
+        await pool.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_id TEXT`);
         console.log('✅ PostgreSQL tables checked/created successfully');
     } catch (err) {
         console.error('❌ Error initializing database:', err);
@@ -273,11 +276,11 @@ const getProjects = async () => {
     return res.rows;
 };
 
-const createProject = async (name, website, apiKey) => {
+const createProject = async (name, website, apiKey, instanceId) => {
     const createdAt = new Date().toLocaleString('pt-BR');
     const res = await pool.query(
-        "INSERT INTO projects (name, website, api_key, created_at) VALUES ($1, $2, $3, $4) RETURNING id",
-        [name, website, apiKey, createdAt]
+        "INSERT INTO projects (name, website, api_key, instance_id, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        [name, website, apiKey, instanceId, createdAt]
     );
     return res.rows[0].id;
 };
@@ -289,7 +292,7 @@ const deleteProject = async (id) => {
 
 const validateApiKey = async (apiKey) => {
     const res = await pool.query("SELECT * FROM projects WHERE api_key = $1", [apiKey]);
-    return !!res.rows[0];
+    return res.rows[0] || null;
 };
 
 module.exports = {

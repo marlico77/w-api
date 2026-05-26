@@ -364,14 +364,15 @@ router.get('/api/projects', async (req, res) => {
 });
 
 router.post('/api/projects', async (req, res) => {
-    const { name, website } = req.body;
+    const { name, website, instanceId } = req.body;
     if (!name) return res.status(400).json({ error: 'Nome do projeto é obrigatório' });
+    if (!instanceId) return res.status(400).json({ error: 'Instância é obrigatória' });
     
     try {
         const crypto = require('crypto');
         const apiKey = 'sk-live-' + crypto.randomBytes(24).toString('hex');
-        const id = await db.createProject(name, website || '', apiKey);
-        res.json({ success: true, project: { id, name, website, api_key: apiKey } });
+        const id = await db.createProject(name, website || '', apiKey, instanceId);
+        res.json({ success: true, project: { id, name, website, api_key: apiKey, instance_id: instanceId } });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -391,8 +392,13 @@ const apiKeyMiddleware = async (req, res, next) => {
     if (!apiKey) return res.status(401).json({ error: 'Chave de API não fornecida (Header: x-api-key)' });
     
     try {
-        const isValid = await db.validateApiKey(apiKey);
-        if (!isValid) return res.status(403).json({ error: 'Chave de API inválida' });
+        const project = await db.validateApiKey(apiKey);
+        if (!project) return res.status(403).json({ error: 'Chave de API inválida' });
+        
+        if (req.params.id && project.instance_id !== req.params.id) {
+            return res.status(403).json({ error: `Esta chave de API não tem permissão para a instância '${req.params.id}'` });
+        }
+        
         next();
     } catch (e) {
         res.status(500).json({ error: 'Erro ao validar chave' });
