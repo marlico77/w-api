@@ -1,3 +1,11 @@
+/**
+ * ZAP API - Rotas e Controladores da API
+ * Desenvolvido por: Marlon Souza
+ * Licença: Atribuição Obrigatória (Manter Créditos)
+ * 
+ * Assinatura: Marlon Souza © 2026
+ */
+
 const express = require('express');
 const { instances, createInstance, updateInstanceConfig, deleteInstance, disconnectInstance, addMessageLog, MessageMedia } = require('./whatsappClient');
 const axios = require('axios');

@@ -1,3 +1,11 @@
+/**
+ * ZAP API - Fila de Agendamento e Loop Anti-Spam
+ * Desenvolvido por: Marlon Souza
+ * Licença: Atribuição Obrigatória (Manter Créditos)
+ * 
+ * Assinatura: Marlon Souza © 2026
+ */
+
 const db = require('./database');
 const { instances } = require('./whatsappClient');
 

@@ -1,3 +1,11 @@
+/**
+ * ZAP API - Conexão e Queries do Banco de Dados (PostgreSQL/Supabase)
+ * Desenvolvido por: Marlon Souza
+ * Licença: Atribuição Obrigatória (Manter Créditos)
+ * 
+ * Assinatura: Marlon Souza © 2026
+ */
+
 const { Pool } = require('pg');
 require('dotenv').config();
 

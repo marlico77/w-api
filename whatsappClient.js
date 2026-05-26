@@ -1,3 +1,11 @@
+/**
+ * ZAP API - Integração e Gerenciamento do WhatsApp Web (Puppeteer/WWebJS)
+ * Desenvolvido por: Marlon Souza
+ * Licença: Atribuição Obrigatória (Manter Créditos)
+ * 
+ * Assinatura: Marlon Souza © 2026
+ */
+
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const axios = require('axios');
 const dotenv = require('dotenv');

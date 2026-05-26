@@ -32,6 +32,9 @@
                 <a href="#" class="nav-item" data-target="view-documentation"><i class="fa-solid fa-book"></i> Documentação</a>
                 <a href="#" class="nav-item"><i class="fa-solid fa-gear"></i> Configurações</a>
             </nav>
+            <div style="margin-top:auto; padding:20px; font-size:0.75rem; color:var(--text-muted); border-top:1px solid var(--border); text-align:center;">
+                Desenvolvido por <strong style="color:var(--primary);">Marlon Souza</strong>
+            </div>
         </aside>
 
         <!-- Main Wrapper -->
@@ -404,45 +407,123 @@
                             <h3>Documentação do Sistema e API</h3>
                         </div>
                         <div class="doc-content" style="padding: 20px; line-height: 1.6; color: var(--text-muted);">
-                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.1rem;"><i class="fa-solid fa-code"></i> Consumo da API Externa</h4>
-                            <p>O sistema permite que plataformas externas enviem mensagens de texto através das suas instâncias conectadas. Para isso, você deve criar um "Projeto" no menu lateral e gerar uma Chave de API.</p>
                             
-                            <div style="background:rgba(0,0,0,0.3); border-radius:6px; padding:15px; margin: 15px 0;">
-                                <p style="color:#fff; font-weight:600; margin-bottom:10px;">Endpoint de Envio de Texto (POST)</p>
+                            <!-- Introdução -->
+                            <div style="margin-bottom: 30px;">
+                                <p style="font-size: 1.1rem; color: #fff; font-weight: 500;">Bem-vindo à Documentação Oficial da ZAP API!</p>
+                                <p>Este sistema é uma solução completa para automação de mensagens, gerenciamento de contatos e conexão multidevice com o WhatsApp Web. Siga as orientações abaixo para integrar a API com sistemas externos e gerenciar o fluxo de disparo.</p>
+                            </div>
+
+                            <hr style="border:0; border-top:1px solid var(--border); margin:20px 0;">
+
+                            <!-- Seção 1: Envio de Mensagens -->
+                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.15rem;"><i class="fa-solid fa-code" style="color:var(--primary);"></i> 1. Consumo da API (Integração de Sistemas)</h4>
+                            <p>Para integrar seu sistema financeiro, ERP ou CRM e enviar mensagens automáticas, você deve primeiro criar um <strong>Projeto</strong> na aba correspondente do menu para gerar uma <strong>Chave de API (Secret)</strong> vinculada à instância de WhatsApp correspondente.</p>
+                            
+                            <div style="background:rgba(0,0,0,0.35); border-radius:6px; padding:15px; margin: 15px 0; border-left: 3px solid var(--primary);">
+                                <p style="color:#fff; font-weight:600; margin-bottom:5px;">Endpoint de Envio de Texto (POST)</p>
                                 <code style="display:block; padding:10px; background:var(--bg-main); border:1px solid var(--border); border-radius:4px; color:var(--primary); word-break: break-all; font-family: monospace;">
-                                    http://[SEU_IP_OU_DOMINIO]/api/v1/instances/[ID_DA_INSTANCIA]/send-text
+                                    https://[SEU_DOMINIO_OU_IP]/api/v1/instances/[NOME_DA_INSTANCIA]/send-text
                                 </code>
                             </div>
 
-                            <h5 style="color:#fff; margin-top:20px;">Cabeçalhos Obrigatórios (Headers)</h5>
-                            <ul style="margin-left: 20px; margin-bottom: 15px;">
+                            <h5 style="color:#fff; margin-top:20px; font-size:0.95rem;">Cabeçalhos (Headers) Necessários</h5>
+                            <ul style="margin-left: 20px; margin-bottom: 20px;">
                                 <li><code>Content-Type: application/json</code></li>
-                                <li><code>x-api-key: sk-live-... [SUA_CHAVE_GERADA]</code> (ou <code>Authorization: Bearer sk-live-...</code>)</li>
+                                <li><code>x-api-key: sk-live-... [Sua Chave de API Gerada]</code> (ou use o header <code>Authorization: Bearer sk-live-...</code>)</li>
                             </ul>
 
-                            <h5 style="color:#fff;">Corpo da Requisição (JSON)</h5>
-                            <pre style="background:var(--bg-main); border:1px solid var(--border); padding:15px; border-radius:6px; overflow-x:auto; margin-top:10px; color:#fff; font-family: monospace;">{
-  "number": "5511999999999",
-  "message": "Olá! Esta é uma mensagem de teste enviada pela API."
+                            <h5 style="color:#fff; font-size:0.95rem;">Estrutura do Corpo da Requisição (JSON Payload)</h5>
+                            <pre style="background:var(--bg-main); border:1px solid var(--border); padding:15px; border-radius:6px; overflow-x:auto; margin-top:10px; color:#fff; font-family: monospace; font-size:0.85rem;">{
+  "number": "5511999999999", // Número completo: DDI + DDD + Telefone (apenas dígitos)
+  "message": "Olá! Esta é uma notificação automática enviada via ZAP API."
 }</pre>
 
+                            <!-- Snippets em Múltiplas Linguagens -->
+                            <h5 style="color:#fff; margin-top:25px; font-size:0.95rem;">Exemplos de Implementação de Código</h5>
+                            
+                            <div style="margin-top:10px;">
+                                <p style="color:#fff; font-size:0.85rem; font-weight:600; margin-bottom:5px;">Exemplo cURL (Terminal/Postman)</p>
+                                <pre style="background:rgba(0,0,0,0.4); border:1px solid var(--border); padding:10px; border-radius:4px; color:var(--primary); font-family: monospace; font-size:0.8rem; white-space: pre-wrap; word-break: break-all;">curl -X POST "https://[SEU_DOMINIO]/api/v1/instances/[INSTANCIA]/send-text" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-live-sua-chave-aqui" \
+  -d '{
+    "number": "5511999999999",
+    "message": "Olá de teste!"
+  }'</pre>
+                            </div>
+
+                            <div style="margin-top:15px;">
+                                <p style="color:#fff; font-size:0.85rem; font-weight:600; margin-bottom:5px;">Exemplo Node.js / JavaScript (Fetch)</p>
+                                <pre style="background:rgba(0,0,0,0.4); border:1px solid var(--border); padding:10px; border-radius:4px; color:#3498db; font-family: monospace; font-size:0.8rem; overflow-x:auto;">fetch('https://[SEU_DOMINIO]/api/v1/instances/[INSTANCIA]/send-text', {
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': 'sk-live-sua-chave-aqui'
+    },
+    body: JSON.stringify({
+        number: '5511999999999',
+        message: 'Olá de teste!'
+    })
+})
+.then(res => res.json())
+.then(data => console.log(data));</pre>
+                            </div>
+
+                            <div style="margin-top:15px;">
+                                <p style="color:#fff; font-size:0.85rem; font-weight:600; margin-bottom:5px;">Exemplo PHP (cURL)</p>
+                                <pre style="background:rgba(0,0,0,0.4); border:1px solid var(--border); padding:10px; border-radius:4px; color:#f39c12; font-family: monospace; font-size:0.8rem; overflow-x:auto;">&lt;?php
+$curl = curl_init();
+curl_setopt_array($curl, [
+    CURLOPT_URL => "https://[SEU_DOMINIO]/api/v1/instances/[INSTANCIA]/send-text",
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_CUSTOMREQUEST => "POST",
+    CURLOPT_POSTFIELDS => json_encode([
+        "number" => "5511999999999",
+        "message" => "Olá de teste!"
+    ]),
+    CURLOPT_HTTPHEADER => [
+        "Content-Type: application/json",
+        "x-api-key: sk-live-sua-chave-aqui"
+    ],
+]);
+$response = curl_exec($curl);
+curl_close($curl);
+echo $response;</pre>
+                            </div>
+
                             <hr style="border:0; border-top:1px solid var(--border); margin:30px 0;">
 
-                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.1rem;"><i class="fa-solid fa-paper-plane"></i> Campanhas Automáticas e Recorrência</h4>
-                            <p>No menu de <strong>Mensagens Automáticas</strong>, você pode programar o envio de mensagens em massa para seus contatos.</p>
-                            <ul style="margin-left: 20px; margin-bottom: 15px;">
-                                <li><strong>Base de Contatos:</strong> Para uma campanha rodar, primeiro certifique-se de acessar <em>Instâncias Web > Ações > Sincronizar Contatos</em> para baixar a agenda do aparelho.</li>
-                                <li><strong>Mensagens Recorrentes:</strong> Ao marcar uma campanha como recorrente, o robô automaticamente refaz a fila de contatos quando terminar, aguardando o próximo horário e dia agendados (Ex: "Toda Seg, Qua às 09:00 e 15:00").</li>
-                                <li><strong>Proteção Anti-Spam:</strong> O sistema possui um intervalo automático de segurança de aproximadamente 37 segundos entre o envio de cada mensagem da fila, evitando bloqueios do WhatsApp.</li>
+                            <!-- Seção 2: Campanhas e Fila -->
+                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.15rem;"><i class="fa-solid fa-paper-plane" style="color:var(--orange);"></i> 2. Campanhas Automáticas e Regras Anti-Spam</h4>
+                            <p>O menu de <strong>Mensagens Automáticas</strong> permite programar disparos recorrentes ou únicos para toda a sua base de contatos sem riscos elevados de bloqueio.</p>
+                            <ul style="margin-left: 20px; margin-bottom: 15px; display:flex; flex-direction:column; gap:8px;">
+                                <li><strong>Sincronização Prévia:</strong> Antes de agendar uma campanha, acesse <em>Instâncias Web</em>, gerencie a instância desejada e clique em <em>Importar Contatos</em> para carregar a lista de contatos do seu celular para o banco de dados.</li>
+                                <li><strong>Proteção Anti-Spam (Fila Automática):</strong> O sistema enfileira os contatos e envia as mensagens de forma sequencial com um intervalo fixo de <strong>37 segundos</strong> entre cada envio. Isso simula o comportamento humano e protege seu chip contra banimentos rápidos por parte do WhatsApp.</li>
+                                <li><strong>Recorrência:</strong> Caso uma campanha seja agendada como recorrente, ela será processada até o fim e, automaticamente, a fila de contatos será reinicializada para a próxima data agendada baseada nos dias da semana e horários múltiplos escolhidos.</li>
                             </ul>
 
                             <hr style="border:0; border-top:1px solid var(--border); margin:30px 0;">
 
-                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.1rem;"><i class="fa-solid fa-qrcode"></i> Instâncias Web</h4>
-                            <p>As instâncias representam o seu aparelho celular conectado ao sistema via WhatsApp Web.</p>
-                            <ul style="margin-left: 20px;">
-                                <li>Para conectar, clique em "Nova Instância", gere um nome, salve e então clique no ícone de QR Code para escaneá-lo com o aplicativo do celular.</li>
-                                <li><strong>Atenção:</strong> Mantenha o seu aparelho celular conectado à internet. O sistema depende que o WhatsApp do celular consiga sincronizar as mensagens com a rede.</li>
+                            <!-- Seção 3: Conexões e Instâncias -->
+                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.15rem;"><i class="fa-solid fa-desktop" style="color:#3498db;"></i> 3. Gerenciamento de Instâncias e Sessões</h4>
+                            <p>As instâncias representam sessões do WhatsApp Web abertas pelo robô.</p>
+                            <ul style="margin-left: 20px; margin-bottom:15px; display:flex; flex-direction:column; gap:8px;">
+                                <li><strong>Headless Browser:</strong> A API inicia um navegador oculto (Chromium) no servidor do Railway para simular a presença do celular.</li>
+                                <li><strong>Persistência:</strong> Graças ao volume do Railway montado no caminho `/app/.wwebjs_auth`, os logins permanecem seguros mesmo quando novos commits de código são efetuados na aplicação.</li>
+                                <li><strong>Botão Desconectar (Reset):</strong> Caso precise trocar o WhatsApp de alguma instância, clique no botão <em>Desconectar</em>. O sistema forçará o fechamento de qualquer navegador ativo, excluirá os dados de login antigos do disco e recriará a instância limpa, fornecendo um novo QR Code na tela instantaneamente.</li>
+                            </ul>
+
+                            <hr style="border:0; border-top:1px solid var(--border); margin:30px 0;">
+
+                            <!-- Seção 4: Direitos Autorais e Licença -->
+                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.15rem;"><i class="fa-solid fa-circle-info" style="color:#fff;"></i> 4. Direitos de Uso e Licença</h4>
+                            <p>Este projeto foi desenvolvido e assinado originalmente por <strong>Marlon Souza</strong>.</p>
+                            <p>De acordo com a licença do projeto:</p>
+                            <ul style="margin-left: 20px; display:flex; flex-direction:column; gap:5px;">
+                                <li>O código-fonte e o visual do painel podem ser copiados, editados e distribuídos livremente.</li>
+                                <li>A assinatura visual <strong>"Desenvolvido por Marlon Souza"</strong> na parte inferior do menu lateral deve permanecer visível e intacta.</li>
+                                <li>Os blocos de comentários de créditos nos cabeçalhos de arquivos backend/frontend devem ser conservados.</li>
                             </ul>
                         </div>
                     </div>

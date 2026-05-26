@@ -1,3 +1,11 @@
+/**
+ * ZAP API - Sistema de Automação de Mensagens do WhatsApp
+ * Desenvolvido por: Marlon Souza
+ * Licença: Atribuição Obrigatória (Manter Créditos)
+ * 
+ * Assinatura: Marlon Souza © 2026
+ */
+
 const express = require('express');
 const dotenv = require('dotenv');
 const routes = require('./routes');
