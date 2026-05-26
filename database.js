@@ -290,6 +290,14 @@ const deleteProject = async (id) => {
     return true;
 };
 
+const updateProject = async (id, name, website, instanceId) => {
+    await pool.query(
+        "UPDATE projects SET name = $1, website = $2, instance_id = $3 WHERE id = $4",
+        [name, website, instanceId, id]
+    );
+    return true;
+};
+
 const validateApiKey = async (apiKey) => {
     const res = await pool.query("SELECT * FROM projects WHERE api_key = $1", [apiKey]);
     return res.rows[0] || null;
@@ -314,5 +322,6 @@ module.exports = {
     getProjects,
     createProject,
     deleteProject,
+    updateProject,
     validateApiKey
 };

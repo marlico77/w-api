@@ -553,15 +553,22 @@ document.getElementById('form-campaign').addEventListener('submit', async (e) =>
 // ==========================
 // PROJETOS (API)
 // ==========================
+let allProjects = [];
+let editingProjectId = null;
+
 window.fetchProjects = async () => {
     try {
         const res = await fetch(`${API_BASE}/api/projects`);
-        const projects = await res.json();
+        allProjects = await res.json();
         
         const tbody = document.getElementById('tbody-projects');
         tbody.innerHTML = '';
         
-        projects.forEach(p => {
+        allProjects.forEach(p => {
+            const truncatedKey = p.api_key.length > 20 
+                ? `${p.api_key.substring(0, 13)}...${p.api_key.substring(p.api_key.length - 5)}`
+                : p.api_key;
+                
             tbody.innerHTML += `
                 <tr>
                     <td>#${p.id}</td>
@@ -570,14 +577,13 @@ window.fetchProjects = async () => {
                     <td><a href="${p.website}" target="_blank" style="color:var(--primary); text-decoration:none;">${p.website || '-'}</a></td>
                     <td>
                         <div style="display:flex; align-items:center; gap:10px;">
-                            <code style="background:rgba(0,0,0,0.3); padding:4px 8px; border-radius:4px; font-size:0.8rem; color:var(--orange);">${p.api_key}</code>
+                            <code style="background:rgba(0,0,0,0.3); padding:4px 8px; border-radius:4px; font-size:0.8rem; color:var(--orange);">${truncatedKey}</code>
                             <button class="btn-action" style="padding:4px 8px; background:rgba(255,255,255,0.1);" onclick="copyToClipboard('${p.api_key}')" title="Copiar Chave"><i class="fa-solid fa-copy"></i></button>
                         </div>
                     </td>
                     <td>${p.created_at}</td>
                     <td>
-                        <button class="btn-action" style="padding: 5px 10px; background: rgba(52, 152, 219, 0.2); color: #3498db; border: none; margin-right: 5px; border-radius: 4px;" onclick="showProjectInstructions('${p.instance_id}', '${p.api_key}')" title="Instruções de Integração"><i class="fa-solid fa-code"></i></button>
-                        <button class="btn-action red-outline" onclick="deleteProject(${p.id})"><i class="fa-solid fa-trash"></i></button>
+                        <button class="btn-action" style="padding: 5px 10px; background: rgba(32, 201, 151, 0.2); color: var(--primary); border: none; border-radius: 4px;" onclick="openEditProjectModal(${p.id})" title="Editar"><i class="fa-solid fa-pen-to-square"></i></button>
                     </td>
                 </tr>
             `;
@@ -588,9 +594,12 @@ window.fetchProjects = async () => {
 };
 
 window.openNewProjectModal = async () => {
+    editingProjectId = null;
+    document.getElementById('modal-project-title').innerText = 'Criar Novo Projeto (Chave API)';
+    document.getElementById('edit-project-options').classList.add('hidden');
+    document.getElementById('btn-save-project').textContent = 'Gerar Chave de API';
     document.getElementById('form-project').reset();
     
-    // Popular instâncias
     const select = document.getElementById('project_instance');
     select.innerHTML = '<option value="">-- Escolha uma Instância --</option>';
     try {
@@ -602,6 +611,42 @@ window.openNewProjectModal = async () => {
     } catch (e) {
         console.error("Erro ao carregar instâncias para o projeto", e);
     }
+    
+    document.getElementById('modal-project').classList.remove('hidden');
+};
+
+window.openEditProjectModal = async (id) => {
+    editingProjectId = id;
+    const project = allProjects.find(p => p.id === id);
+    if (!project) return;
+
+    document.getElementById('modal-project-title').innerText = 'Editar Projeto (Chave API)';
+    document.getElementById('btn-save-project').textContent = 'Salvar Alterações';
+    document.getElementById('form-project').reset();
+    
+    const select = document.getElementById('project_instance');
+    select.innerHTML = '<option value="">-- Escolha uma Instância --</option>';
+    try {
+        const res = await fetch(`${API_BASE}/api/instances`);
+        const insts = await res.json();
+        insts.forEach(i => {
+            select.innerHTML += `<option value="${i.id}">${i.id}</option>`;
+        });
+    } catch (e) {}
+    
+    document.getElementById('project_name').value = project.name;
+    document.getElementById('project_website').value = project.website || '';
+    document.getElementById('project_instance').value = project.instance_id || '';
+    
+    document.getElementById('edit-project-options').classList.remove('hidden');
+    
+    document.getElementById('btn-project-view-details').onclick = () => {
+        showProjectInstructions(project.instance_id, project.api_key);
+    };
+    
+    document.getElementById('btn-project-delete').onclick = () => {
+        deleteProject(project.id);
+    };
     
     document.getElementById('modal-project').classList.remove('hidden');
 };
@@ -633,30 +678,45 @@ document.getElementById('form-project').addEventListener('submit', async (e) => 
     const instanceId = document.getElementById('project_instance').value;
     
     btn.disabled = true;
-    btn.textContent = 'Gerando...';
+    btn.textContent = editingProjectId ? 'Salvando...' : 'Gerando...';
     
     try {
-        const res = await fetch(`${API_BASE}/api/projects`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, website, instanceId })
-        });
+        let res;
+        if (editingProjectId) {
+            res = await fetch(`${API_BASE}/api/projects/${editingProjectId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, website, instanceId })
+            });
+        } else {
+            res = await fetch(`${API_BASE}/api/projects`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, website, instanceId })
+            });
+        }
+        
         if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
         
-        showToast('Projeto criado e Chave de API gerada!', 'success');
-        closeModal('modal-project');
-        fetchProjects();
-        
-        // Abre automaticamente as instruções com os dados para o desenvolvedor
-        setTimeout(() => {
-            showProjectInstructions(data.project.instance_id, data.project.api_key);
-        }, 500);
+        if (editingProjectId) {
+            showToast('Projeto atualizado com sucesso!', 'success');
+            closeModal('modal-project');
+            fetchProjects();
+        } else {
+            const data = await res.json();
+            showToast('Projeto criado e Chave de API gerada!', 'success');
+            closeModal('modal-project');
+            fetchProjects();
+            
+            setTimeout(() => {
+                showProjectInstructions(data.project.instance_id, data.project.api_key);
+            }, 500);
+        }
     } catch (e) {
         alert(e.message);
     } finally {
         btn.disabled = false;
-        btn.textContent = 'Gerar Chave de API';
+        btn.textContent = editingProjectId ? 'Salvar Alterações' : 'Gerar Chave de API';
     }
 });
 
@@ -667,6 +727,7 @@ window.deleteProject = async (id) => {
         const res = await fetch(`${API_BASE}/api/projects/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Falha ao deletar');
         showToast('Projeto deletado!', 'success');
+        closeModal('modal-project');
         fetchProjects();
     } catch (e) {
         alert(e.message);

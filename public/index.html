@@ -584,9 +584,9 @@
 
     <!-- MODAL: NOVO PROJETO (API) -->
     <div id="modal-project" class="modal hidden">
-        <div class="modal-content">
+        <div class="modal-content" style="max-width: 500px;">
             <div class="modal-header">
-                <h2>Criar Novo Projeto (Chave API)</h2>
+                <h2 id="modal-project-title">Criar Novo Projeto (Chave API)</h2>
                 <button class="btn-close" onclick="closeModal('modal-project')"><i class="fa-solid fa-times"></i></button>
             </div>
             <div class="modal-body">
@@ -609,9 +609,22 @@
                         <input type="text" id="project_website" placeholder="Ex: https://meusistema.com">
                     </div>
 
+                    <!-- Seção exclusiva para o Modo de Edição -->
+                    <div id="edit-project-options" class="hidden" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <label style="display:block; margin-bottom:10px; font-size:0.8rem; color:var(--text-muted); letter-spacing:0.5px;">AÇÕES DA CHAVE DE API</label>
+                        <div style="display:flex; gap:10px;">
+                            <button type="button" class="btn-action" style="flex:1; background:rgba(52, 152, 219, 0.15); color:#3498db; font-size:0.8rem; border:none; padding:10px; display:flex; align-items:center; justify-content:center; gap:8px;" id="btn-project-view-details">
+                                <i class="fa-solid fa-code"></i> Ver Código
+                            </button>
+                            <button type="button" class="btn-action red-outline" style="flex:1; font-size:0.8rem; padding:10px; display:flex; align-items:center; justify-content:center; gap:8px;" id="btn-project-delete">
+                                <i class="fa-solid fa-trash"></i> Excluir Chave
+                            </button>
+                        </div>
+                    </div>
+
                     <div class="form-actions" style="margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: flex-end; gap: 15px;">
                         <button type="button" class="btn-cancel" onclick="closeModal('modal-project')">Cancelar</button>
-                        <button type="submit" class="btn-save" id="btn-save-project">Gerar Chave de API</button>
+                        <button type="submit" class="btn-save" id="btn-save-project">Salvar</button>
                     </div>
                 </form>
             </div>

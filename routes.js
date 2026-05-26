@@ -387,6 +387,19 @@ router.delete('/api/projects/:id', async (req, res) => {
     }
 });
 
+router.put('/api/projects/:id', async (req, res) => {
+    const { name, website, instanceId } = req.body;
+    if (!name) return res.status(400).json({ error: 'Nome do projeto é obrigatório' });
+    if (!instanceId) return res.status(400).json({ error: 'Instância é obrigatória' });
+    
+    try {
+        await db.updateProject(req.params.id, name, website || '', instanceId);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 const apiKeyMiddleware = async (req, res, next) => {
     const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
     if (!apiKey) return res.status(401).json({ error: 'Chave de API não fornecida (Header: x-api-key)' });
