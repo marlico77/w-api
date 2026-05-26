@@ -156,6 +156,39 @@ async function deleteInstance(instanceId) {
     return true;
 }
 
+async function disconnectInstance(instanceId) {
+    const instance = instances.get(instanceId);
+    if (!instance) return false;
+
+    if (instance.client) {
+        try {
+            await instance.client.logout();
+        } catch (e) {
+            console.log(`[${instanceId}] Erro ao efetuar logout normal, forçando encerramento.`);
+        }
+        try {
+            await instance.client.destroy();
+        } catch (e) {}
+    }
+    
+    instances.delete(instanceId);
+
+    const folderPath = path.join(__dirname, '.wwebjs_auth', `session-${instanceId}`);
+    try {
+        if (fs.existsSync(folderPath)) {
+            fs.rmSync(folderPath, { recursive: true, force: true });
+        }
+    } catch (e) {}
+
+    const rows = await db.getInstances();
+    const row = rows.find(r => r.id === instanceId);
+    if (row) {
+        await createInstance(row);
+    }
+
+    return true;
+}
+
 async function updateInstanceConfig(configData) {
     await db.saveInstance(configData);
     const instance = instances.get(configData.id);
@@ -170,6 +203,7 @@ module.exports = {
     updateInstanceConfig,
     restoreSessions,
     deleteInstance,
+    disconnectInstance,
     addMessageLog,
     MessageMedia
 };

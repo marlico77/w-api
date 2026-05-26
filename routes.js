@@ -1,5 +1,5 @@
 const express = require('express');
-const { instances, createInstance, updateInstanceConfig, deleteInstance, addMessageLog, MessageMedia } = require('./whatsappClient');
+const { instances, createInstance, updateInstanceConfig, deleteInstance, disconnectInstance, addMessageLog, MessageMedia } = require('./whatsappClient');
 const axios = require('axios');
 
 const router = express.Router();
@@ -94,16 +94,12 @@ router.get('/api/instances/:id/messages', (req, res) => {
 });
 
 router.post('/api/instances/:id/disconnect', async (req, res) => {
-    const instance = instances.get(req.params.id);
-    if (!instance) return res.status(404).json({ error: 'Not found' });
-
     try {
-        if (instance.client) {
-            await instance.client.logout();
-        }
+        const success = await disconnectInstance(req.params.id);
+        if (!success) return res.status(404).json({ error: 'Instância não encontrada' });
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ error: 'Erro ao desconectar' });
+        res.status(500).json({ error: 'Erro ao desconectar: ' + error.message });
     }
 });
 
