@@ -1608,6 +1608,7 @@ input:checked + .slider:before {
     color: #1e202e;
     display: flex;
     flex-direction: column;
+    align-items: center;
     padding: 40px 60px;
     position: relative;
     justify-content: center;
@@ -1710,9 +1711,8 @@ input:checked + .slider:before {
 }
 
 .login-box {
-    max-width: 400px;
+    max-width: 360px;
     width: 100%;
-    margin: 0 auto;
 }
 
 .login-logo {
@@ -1785,9 +1785,9 @@ input:checked + .slider:before {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     color: #0f172a;
-    padding: 12px 15px 12px 40px;
-    border-radius: 10px;
-    font-size: 0.95rem;
+    padding: 11px 15px 11px 40px;
+    border-radius: 8px;
+    font-size: 0.9rem;
     width: 100%;
     transition: all 0.2s;
 }
@@ -1842,13 +1842,13 @@ input:checked + .slider:before {
     background: var(--primary);
     color: #ffffff;
     border: none;
-    padding: 14px;
-    border-radius: 10px;
-    font-size: 1rem;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
     width: 100%;
-    margin-top: 25px;
+    margin-top: 20px;
     transition: all 0.2s;
     box-shadow: 0 4px 12px rgba(32, 201, 151, 0.2);
 }
