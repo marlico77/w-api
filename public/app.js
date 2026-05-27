@@ -1170,7 +1170,7 @@ async function fetchChats() {
 function setupChatSSE() {
     closeChatSSE();
     
-    sseSource = new EventSource(`${API_BASE}/api/instances/${activeInstanceId}/chat-sse`);
+    sseSource = new EventSource(`${API_BASE}/api/instances/${activeInstanceId}/chat-sse?token=${encodeURIComponent(localStorage.getItem('token') || '')}`);
     
     sseSource.onmessage = (event) => {
         try {
@@ -1729,7 +1729,142 @@ function escapeHTML(str) {
         .replace(/'/g, "&#039;");
 }
 
+// Auth helpers and listeners
+const originalFetch = window.fetch;
+window.fetch = async function (input, init = {}) {
+    let url = typeof input === 'string' ? input : input.url;
+    
+    if (url.startsWith('/') || url.startsWith(window.location.origin)) {
+        const token = localStorage.getItem('token');
+        if (token) {
+            init.headers = init.headers || {};
+            if (init.headers instanceof Headers) {
+                init.headers.set('Authorization', `Bearer ${token}`);
+            } else if (Array.isArray(init.headers)) {
+                init.headers.push(['Authorization', `Bearer ${token}`]);
+            } else {
+                init.headers['Authorization'] = `Bearer ${token}`;
+            }
+        }
+    }
+    
+    const response = await originalFetch(input, init);
+    
+    if (response.status === 401 && !url.includes('/api/auth/login') && !url.includes('/api/v1/')) {
+        logout();
+    }
+    
+    return response;
+};
+
+function showLoginScreen() {
+    document.getElementById('login-container').classList.remove('hidden');
+    document.querySelector('.app-container').classList.add('hidden');
+    clearInterval(pollInterval);
+}
+
+function showAppScreen() {
+    document.getElementById('login-container').classList.add('hidden');
+    document.querySelector('.app-container').classList.remove('hidden');
+    
+    const username = localStorage.getItem('username') || 'ADMINISTRADOR';
+    document.querySelector('.user-info strong').textContent = username;
+    document.querySelector('.avatar').textContent = username.substring(0, 2).toUpperCase();
+    
+    switchView('view-instances');
+}
+
+function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    showLoginScreen();
+}
+
+async function checkSession() {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        showLoginScreen();
+        return;
+    }
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/auth/me`);
+        if (res.ok) {
+            showAppScreen();
+        } else {
+            logout();
+        }
+    } catch (e) {
+        showLoginScreen();
+    }
+}
+
+document.getElementById('form-login').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-login-submit');
+    const usernameInput = document.getElementById('login-username').value;
+    const passwordInput = document.getElementById('login-password').value;
+    
+    btn.disabled = true;
+    btn.textContent = 'Entrando...';
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: usernameInput, password: passwordInput })
+        });
+        
+        const data = await res.json();
+        if (res.ok && data.success) {
+            localStorage.setItem('token', data.token);
+            localStorage.setItem('username', data.user.username);
+            showAppScreen();
+        } else {
+            alert(data.error || 'Falha ao efetuar login.');
+        }
+    } catch (err) {
+        alert('Erro ao tentar conectar ao servidor.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Entrar';
+    }
+});
+
+document.getElementById('btn-logout').addEventListener('click', (e) => {
+    e.preventDefault();
+    logout();
+});
+
+document.getElementById('btn-toggle-password').addEventListener('click', () => {
+    const pwdInput = document.getElementById('login-password');
+    const toggleIcon = document.querySelector('#btn-toggle-password i');
+    if (pwdInput.type === 'password') {
+        pwdInput.type = 'text';
+        toggleIcon.className = 'fa-regular fa-eye-slash';
+    } else {
+        pwdInput.type = 'password';
+        toggleIcon.className = 'fa-regular fa-eye';
+    }
+});
+
+const btnThemeLight = document.getElementById('btn-theme-light');
+const btnThemeDark = document.getElementById('btn-theme-dark');
+const loginContainer = document.getElementById('login-container');
+
+btnThemeLight.addEventListener('click', () => {
+    loginContainer.classList.remove('dark-theme');
+    btnThemeLight.classList.add('active');
+    btnThemeDark.classList.remove('active');
+});
+
+btnThemeDark.addEventListener('click', () => {
+    loginContainer.classList.add('dark-theme');
+    btnThemeDark.classList.add('active');
+    btnThemeLight.classList.remove('active');
+});
+
 window.closeChatSSE = closeChatSSE;
 
 // Init
-switchView('view-instances');
+checkSession();

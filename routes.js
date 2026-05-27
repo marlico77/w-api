@@ -9,8 +9,89 @@
 const express = require('express');
 const { instances, createInstance, updateInstanceConfig, deleteInstance, disconnectInstance, clientEvents, addMessageLog, MessageMedia } = require('./whatsappClient');
 const axios = require('axios');
+const db = require('./database');
+const crypto = require('crypto');
 
 const router = express.Router();
+
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+
+function generateToken(username) {
+    const payload = JSON.stringify({ username, expires: Date.now() + 24 * 60 * 60 * 1000 });
+    const signature = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('hex');
+    return Buffer.from(payload).toString('base64') + '.' + signature;
+}
+
+function verifyToken(token) {
+    try {
+        const [payloadB64, signature] = token.split('.');
+        const payloadStr = Buffer.from(payloadB64, 'base64').toString('utf8');
+        const payload = JSON.parse(payloadStr);
+        
+        const expectedSignature = crypto.createHmac('sha256', JWT_SECRET).update(payloadStr).digest('hex');
+        if (signature !== expectedSignature) return null;
+        
+        if (Date.now() > payload.expires) return null;
+        
+        return payload;
+    } catch (e) {
+        return null;
+    }
+}
+
+const authMiddleware = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    let token = authHeader && authHeader.split(' ')[1];
+    
+    if (!token && req.query.token) {
+        token = req.query.token;
+    }
+    
+    if (!token) {
+        return res.status(401).json({ error: 'Acesso negado: Token não fornecido.' });
+    }
+    
+    const decoded = verifyToken(token);
+    if (!decoded) {
+        return res.status(401).json({ error: 'Sessão expirada ou token inválido.' });
+    }
+    
+    req.user = decoded;
+    next();
+};
+
+// Rota pública de login
+router.post('/api/auth/login', async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Usuário e senha são obrigatórios.' });
+    }
+    
+    try {
+        const user = await db.validateUser(username, password);
+        if (!user) {
+            return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
+        }
+        
+        const token = generateToken(user.username);
+        res.json({ success: true, token, user: { username: user.username } });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Rota protegida para validar token atual/carregar dados de login
+router.get('/api/auth/me', authMiddleware, (req, res) => {
+    res.json({ success: true, user: { username: req.user.username } });
+});
+
+// Middleware para proteger as outras rotas /api (mas não /api/v1)
+router.use('/api', (req, res, next) => {
+    if (req.path.startsWith('/v1/')) {
+        return next();
+    }
+    authMiddleware(req, res, next);
+});
 
 // ==========================
 // ROTAS DE GERENCIAMENTO (INSTÂNCIAS)
@@ -83,7 +164,6 @@ router.get('/api/instances/:id/status', (req, res) => {
     });
 });
 
-const db = require('./database');
 router.get('/api/instances/:id/config', async (req, res) => {
     try {
         const rows = await db.getInstances();

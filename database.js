@@ -8,6 +8,7 @@
 
 const { Pool } = require('pg');
 require('dotenv').config();
+const crypto = require('crypto');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -15,6 +16,11 @@ const pool = new Pool({
         rejectUnauthorized: false
     }
 });
+
+function hashPassword(password) {
+    const salt = 'zap-api-salt-2026';
+    return crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+}
 
 const initDb = async () => {
     try {
@@ -77,6 +83,21 @@ const initDb = async () => {
         )`);
 
         await pool.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_id TEXT`);
+
+        await pool.query(`CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password_hash TEXT,
+            created_at TEXT
+        )`);
+
+        const userCheck = await pool.query("SELECT COUNT(*) FROM users");
+        if (parseInt(userCheck.rows[0].count, 10) === 0) {
+            const adminPassHash = hashPassword('admin123');
+            const nowStr = new Date().toLocaleString('pt-BR');
+            await pool.query("INSERT INTO users (username, password_hash, created_at) VALUES ($1, $2, $3)", ['ADMINISTRADOR', adminPassHash, nowStr]);
+            console.log('✅ Seeded default user ADMINISTRADOR with password admin123');
+        }
+
         console.log('✅ PostgreSQL tables checked/created successfully');
     } catch (err) {
         console.error('❌ Error initializing database:', err);
@@ -311,6 +332,18 @@ const validateApiKey = async (apiKey) => {
     return res.rows[0] || null;
 };
 
+const validateUser = async (username, password) => {
+    const hash = hashPassword(password);
+    const res = await pool.query("SELECT * FROM users WHERE UPPER(username) = UPPER($1) AND password_hash = $2", [username, hash]);
+    return res.rows[0] || null;
+};
+
+const changeUserPassword = async (username, newPassword) => {
+    const hash = hashPassword(newPassword);
+    await pool.query("UPDATE users SET password_hash = $1 WHERE UPPER(username) = UPPER($2)", [hash, username]);
+    return true;
+};
+
 module.exports = {
     getInstances,
     saveInstance,
@@ -331,5 +364,7 @@ module.exports = {
     createProject,
     deleteProject,
     updateProject,
-    validateApiKey
+    validateApiKey,
+    validateUser,
+    changeUserPassword
 };

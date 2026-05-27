@@ -53,6 +53,7 @@
                             <strong>Marlon Souza</strong>
                             <span>Admin Local</span>
                         </div>
+                        <button class="btn-logout" id="btn-logout" title="Sair da Conta" style="margin-left: 15px;"><i class="fa-solid fa-right-from-bracket"></i> Sair</button>
                     </div>
                 </div>
             </header>
@@ -937,6 +938,68 @@ echo $response;</pre>
                 <div style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid rgba(255,255,255,0.1); padding-top:15px; margin-top:15px;">
                     <button type="button" class="btn-action" style="background:var(--primary); color:#fff; border:none; padding:8px 15px; border-radius:4px;" onclick="closeModal('modal-project-instructions')">Fechar</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SEÇÃO DE LOGIN -->
+    <div id="login-container" class="login-wrapper">
+        <div class="login-left">
+            <div class="login-header-bar">
+                <div class="lang-selector">
+                    <button class="btn-lang"><img src="https://flagcdn.com/w20/br.png" alt="PT-BR"> PT-BR <i class="fa-solid fa-chevron-down"></i></button>
+                </div>
+                <div class="theme-toggle" id="login-theme-toggle">
+                    <button class="btn-theme-light active" id="btn-theme-light"><i class="fa-solid fa-sun"></i> Light</button>
+                    <button class="btn-theme-dark" id="btn-theme-dark"><i class="fa-solid fa-moon"></i> Dark</button>
+                </div>
+            </div>
+            
+            <div class="login-box">
+                <div class="login-logo">
+                    <span class="logo-accent">Z</span>-api
+                </div>
+                <h2>Entre na sua conta</h2>
+                <p class="subtitle">Entre com seus dados de acesso</p>
+                
+                <form id="form-login">
+                    <div class="form-group-login">
+                        <label for="login-username">E-mail do usuário / Usuário</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon">@</span>
+                            <input type="text" id="login-username" placeholder="E-mail ou Usuário" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group-login mt-4">
+                        <label for="login-password">Senha de acesso</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon"><i class="fa-solid fa-key"></i></span>
+                            <input type="password" id="login-password" placeholder="Senha de acesso" required>
+                            <span class="password-toggle" id="btn-toggle-password"><i class="fa-regular fa-eye"></i></span>
+                        </div>
+                    </div>
+                    
+                    <div class="forgot-password">
+                        <a href="#" onclick="alert('Por favor, entre em contato com o suporte ou redefina sua senha diretamente no banco de dados.')">Esqueci minha senha</a>
+                    </div>
+                    
+                    <button type="submit" class="btn-login" id="btn-login-submit">Entrar</button>
+                </form>
+            </div>
+        </div>
+        <div class="login-right">
+            <div class="illustration-content">
+                <h3>O que você pode desenvolver?</h3>
+                <div class="illustration-img">
+                    <img src="login_illustration.png" alt="Desenvolvimento com Z-API">
+                </div>
+                <ul class="features-list">
+                    <li><i class="fa-solid fa-circle-check"></i> Criar bots de atendimento</li>
+                    <li><i class="fa-solid fa-circle-check"></i> Sistema de agendamento de consultas</li>
+                    <li><i class="fa-solid fa-circle-check"></i> Enviar mensagens de cobrança</li>
+                    <li><strong class="more-text">E muito mais...</strong></li>
+                </ul>
             </div>
         </div>
     </div>
