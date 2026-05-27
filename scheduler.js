@@ -12,25 +12,70 @@ const { instances } = require('./whatsappClient');
 const ANTI_SPAM_DELAY_MS = 37 * 1000; // 37 segundos configurados pelo usuário
 let isProcessing = false;
 
-function formatDateTimeLocal(date) {
-    const pad = (n) => n.toString().padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+function getBrasiliaDateObject(date) {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+        hour12: false
+    });
+    const parts = formatter.formatToParts(date);
+    const map = {};
+    for (const part of parts) {
+        map[part.type] = part.value;
+    }
+    let hour = parseInt(map.hour, 10);
+    if (hour === 24) hour = 0; // Fix for some environments
+    
+    return new Date(Date.UTC(
+        parseInt(map.year, 10),
+        parseInt(map.month, 10) - 1,
+        parseInt(map.day, 10),
+        hour,
+        parseInt(map.minute, 10),
+        parseInt(map.second, 10)
+    ));
 }
 
-function getNextOccurrence(now, days, times) {
+function parseScheduledDate(scheduledAtStr) {
+    if (!scheduledAtStr) return new Date(0);
+    try {
+        const [datePart, timePart] = scheduledAtStr.split('T');
+        if (!datePart || !timePart) {
+            return getBrasiliaDateObject(new Date(scheduledAtStr));
+        }
+        const [year, month, day] = datePart.split('-').map(Number);
+        const [hour, minute] = timePart.split(':').map(Number);
+        return new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+    } catch (e) {
+        console.error('[Scheduler] Erro ao parsear data agendada:', scheduledAtStr, e);
+        return new Date(0);
+    }
+}
+
+function formatDateTimeLocalUTC(date) {
+    const pad = (n) => n.toString().padStart(2, '0');
+    return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}T${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+}
+
+function getNextOccurrence(nowBr, days, times) {
     if (!days || !days.length || !times || !times.length) return null;
     
     const sortedTimes = times.sort();
-    const today = now.getDay();
+    const today = nowBr.getUTCDay();
     
     // Check today first
     if (days.includes(today)) {
-        const currentHourStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+        const currentHourStr = nowBr.getUTCHours().toString().padStart(2, '0') + ':' + nowBr.getUTCMinutes().toString().padStart(2, '0');
         for (let time of sortedTimes) {
             if (time > currentHourStr) {
                 const [h, m] = time.split(':');
-                const next = new Date(now);
-                next.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
+                const next = new Date(nowBr);
+                next.setUTCHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
                 return next;
             }
         }
@@ -42,9 +87,9 @@ function getNextOccurrence(now, days, times) {
         if (days.includes(nextDay)) {
             const time = sortedTimes[0];
             const [h, m] = time.split(':');
-            const next = new Date(now);
-            next.setDate(next.getDate() + i);
-            next.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
+            const next = new Date(nowBr);
+            next.setUTCDate(next.getUTCDate() + i);
+            next.setUTCHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
             return next;
         }
     }
@@ -59,11 +104,12 @@ async function processCampaigns() {
     try {
         const campaigns = await db.getPendingCampaigns();
         const now = new Date();
+        const nowBr = getBrasiliaDateObject(now);
 
         for (const campaign of campaigns) {
             // Verificar se a data/hora agendada já chegou ou passou
-            const scheduled = new Date(campaign.scheduled_at);
-            if (now >= scheduled) {
+            const scheduled = parseScheduledDate(campaign.scheduled_at);
+            if (nowBr >= scheduled) {
                 // Checar se a instância está conectada
                 const instance = instances.get(campaign.instance_id);
                 if (!instance || instance.status !== 'CONNECTED') {
@@ -106,9 +152,9 @@ async function processCampaigns() {
                         try { if (campaign.recurrence_days) parsedDays = JSON.parse(campaign.recurrence_days); } catch(e){}
                         try { if (campaign.recurrence_times) parsedTimes = JSON.parse(campaign.recurrence_times); } catch(e){}
                         
-                        const nextDate = getNextOccurrence(now, parsedDays, parsedTimes);
+                        const nextDate = getNextOccurrence(nowBr, parsedDays, parsedTimes);
                         if (nextDate) {
-                            const newScheduledAt = formatDateTimeLocal(nextDate);
+                            const newScheduledAt = formatDateTimeLocalUTC(nextDate);
                             console.log(`[Scheduler] Campanha #${campaign.id} se repete. Reagendando para ${newScheduledAt}...`);
                             await db.updateCampaignScheduledTime(campaign.id, newScheduledAt);
                             await db.resetCampaignQueue(campaign.id);

@@ -7,6 +7,19 @@
  */
 
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+
+// Patch LocalAuth.prototype.logout para evitar quedas do Node.js no Windows por arquivos bloqueados/ocupados (EBUSY) pelo Chromium.
+LocalAuth.prototype.logout = async function() {
+    if (this.userDataDir) {
+        try {
+            const fsPromise = require('fs/promises');
+            await fsPromise.rm(this.userDataDir, { recursive: true, force: true });
+        } catch (e) {
+            console.warn(`[Patch LocalAuth] Ignorando falha ao remover pasta de sessão no logout (recurso ocupado): ${e.message}`);
+        }
+    }
+};
+
 const axios = require('axios');
 const dotenv = require('dotenv');
 const fs = require('fs');
