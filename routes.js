@@ -7,7 +7,7 @@
  */
 
 const express = require('express');
-const { instances, createInstance, updateInstanceConfig, deleteInstance, disconnectInstance, addMessageLog, MessageMedia } = require('./whatsappClient');
+const { instances, createInstance, updateInstanceConfig, deleteInstance, disconnectInstance, clientEvents, addMessageLog, MessageMedia } = require('./whatsappClient');
 const axios = require('axios');
 
 const router = express.Router();
@@ -132,7 +132,7 @@ const checkInstanceReady = (req, res, next) => {
 };
 
 const formatNumber = (number) => {
-    if (!number.includes('@c.us') && !number.includes('@g.us')) {
+    if (!number.includes('@')) {
         return `${number}@c.us`;
     }
     return number;
@@ -160,6 +160,7 @@ router.post('/api/instances/:id/send-message', checkInstanceReady, async (req, r
 
         res.status(200).json({ success: true, messageId: response.id.id });
     } catch (error) {
+        console.error('[API Send Message Error]', error);
         res.status(500).json({ error: 'Falha ao enviar mensagem', details: error.message });
     }
 });
@@ -196,7 +197,28 @@ router.post('/api/instances/:id/send-media', checkInstanceReady, async (req, res
 
         res.status(200).json({ success: true, messageId: response.id.id });
     } catch (error) {
+        console.error('[API Send Media Error]', error);
         res.status(500).json({ error: 'Falha ao enviar mídia', details: error.message });
+    }
+});
+
+// Apagar (Revogar) Mensagem para todos
+router.delete('/api/instances/:id/chats/:chatId/messages/:messageId', checkInstanceReady, async (req, res) => {
+    const { chatId, messageId } = req.params;
+    try {
+        const chat = await req.waInstance.client.getChatById(chatId);
+        const messages = await chat.fetchMessages({ limit: 50 });
+        const message = messages.find(m => m.id.id === messageId);
+        
+        if (!message) {
+            return res.status(404).json({ error: 'Mensagem não encontrada no histórico recente.' });
+        }
+        
+        await message.delete(true); // true = apagar para todos
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('[API Delete Message Error]', error);
+        res.status(500).json({ error: 'Falha ao apagar mensagem', details: error.message });
     }
 });
 
@@ -405,8 +427,8 @@ router.put('/api/projects/:id', async (req, res) => {
 });
 
 const apiKeyMiddleware = async (req, res, next) => {
-    const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
-    if (!apiKey) return res.status(401).json({ error: 'Chave de API não fornecida (Header: x-api-key)' });
+    const apiKey = req.headers['x-api-key'] || req.query.api_key || req.headers['authorization']?.replace('Bearer ', '');
+    if (!apiKey) return res.status(401).json({ error: 'Chave de API não fornecida (Header: x-api-key ou Query: api_key)' });
     
     try {
         const project = await db.validateApiKey(apiKey);
@@ -432,6 +454,479 @@ router.post('/api/v1/instances/:id/send-text', apiKeyMiddleware, checkInstanceRe
         res.status(200).json({ success: true, messageId: response.id.id, timestamp: new Date() });
     } catch (error) {
         res.status(500).json({ error: 'Falha ao enviar mensagem', details: error.message });
+    }
+});
+
+// Enviar Mídia V1
+router.post('/api/v1/instances/:id/send-media', apiKeyMiddleware, checkInstanceReady, async (req, res) => {
+    const { number, caption, url, base64, mimetype, filename } = req.body;
+    if (!number) return res.status(400).json({ error: 'Parâmetro "number" é obrigatório.' });
+
+    try {
+        const formattedNumber = formatNumber(number);
+        let media;
+        if (url) {
+            const response = await axios.get(url, { responseType: 'arraybuffer' });
+            media = new MessageMedia(response.headers['content-type'], Buffer.from(response.data, 'binary').toString('base64'), filename || 'file');
+        } else if (base64 && mimetype) {
+            media = new MessageMedia(mimetype, base64, filename || 'file');
+        } else {
+            return res.status(400).json({ error: 'Forneça "url" OU "base64" + "mimetype".' });
+        }
+
+        const response = await req.waInstance.client.sendMessage(formattedNumber, media, { caption });
+        
+        addMessageLog(req.params.id, {
+            id: response.id.id,
+            from: 'API (Você)',
+            to: formattedNumber,
+            body: caption || '[Mídia]',
+            timestamp: Math.floor(Date.now() / 1000),
+            hasMedia: true,
+            type: 'media',
+            direction: 'OUT'
+        });
+
+        res.status(200).json({ success: true, messageId: response.id.id });
+    } catch (error) {
+        console.error('[API Send Media V1 Error]', error);
+        res.status(500).json({ error: 'Falha ao enviar mídia', details: error.message });
+    }
+});
+
+// Listar conversas V1
+router.get('/api/v1/instances/:id/chats', apiKeyMiddleware, checkInstanceReady, async (req, res) => {
+    try {
+        const chats = await req.waInstance.client.getChats();
+        const mapped = [];
+
+        for (const chat of chats) {
+            let lastMsg = null;
+            if (chat.lastMessage) {
+                lastMsg = {
+                    body: chat.lastMessage.body,
+                    fromMe: chat.lastMessage.fromMe,
+                    timestamp: chat.lastMessage.timestamp,
+                    type: chat.lastMessage.type
+                };
+            }
+
+            let chatName = chat.name;
+            if (!chat.isGroup && (!chatName || /^\d+$/.test(chatName.replace(/[\s\+\-]/g, '')))) {
+                try {
+                    const contact = await chat.getContact();
+                    chatName = contact.name || contact.pushname || contact.verifiedName || chat.name || chat.id.user;
+                } catch (e) {}
+            }
+
+            mapped.push({
+                id: chat.id._serialized,
+                name: chatName || chat.id.user,
+                isGroup: chat.isGroup,
+                unreadCount: chat.unreadCount,
+                timestamp: chat.timestamp,
+                lastMessage: lastMsg
+            });
+        }
+        res.json(mapped);
+    } catch (error) {
+        console.error(`[Chat V1 Erro] Erro ao buscar conversas:`, error);
+        res.status(500).json({ error: 'Erro ao buscar conversas', details: error.message });
+    }
+});
+
+// Histórico de mensagens V1
+router.get('/api/v1/instances/:id/chats/:chatId/messages', apiKeyMiddleware, checkInstanceReady, async (req, res) => {
+    try {
+        const chat = await req.waInstance.client.getChatById(req.params.chatId);
+        const limit = parseInt(req.query.limit) || 50;
+        const messages = await chat.fetchMessages({ limit });
+        
+        const mapped = [];
+        const contactCache = {};
+
+        for (const msg of messages) {
+            const senderId = msg.author || msg.from;
+            let name = null;
+            
+            if (senderId) {
+                if (contactCache[senderId]) {
+                    name = contactCache[senderId];
+                } else {
+                    name = msg._data?.notifyName || msg._data?.pushname;
+                    if (!name) {
+                        try {
+                            const contact = await msg.getContact();
+                            name = contact.name || contact.pushname || contact.verifiedName || senderId.split('@')[0];
+                        } catch (e) {
+                            name = senderId.split('@')[0];
+                        }
+                    }
+                    contactCache[senderId] = name;
+                }
+            }
+
+            mapped.push({
+                id: msg.id.id,
+                body: msg.body,
+                type: msg.type,
+                timestamp: msg.timestamp,
+                fromMe: msg.fromMe,
+                senderName: name,
+                sender: senderId,
+                hasMedia: msg.hasMedia,
+                mimetype: msg._data?.mimetype || msg.mimetype || (msg.type === 'image' ? 'image/jpeg' : msg.type === 'video' ? 'video/mp4' : msg.type === 'audio' || msg.type === 'ptt' ? 'audio/ogg' : 'application/octet-stream'),
+                size: msg._data?.size || 0
+            });
+        }
+        res.json(mapped);
+    } catch (error) {
+        console.error(`[Chat V1 Erro] Erro ao buscar mensagens do chat:`, error);
+        res.status(500).json({ error: 'Erro ao buscar mensagens', details: error.message });
+    }
+});
+
+// Download de mídias V1
+router.get('/api/v1/instances/:id/messages/:messageId/media', apiKeyMiddleware, checkInstanceReady, async (req, res) => {
+    const { messageId } = req.params;
+    const chatId = req.query.chatId;
+    if (!chatId) return res.status(400).json({ error: 'Parâmetro "chatId" é obrigatório na query.' });
+
+    try {
+        const chat = await req.waInstance.client.getChatById(chatId);
+        const messages = await chat.fetchMessages({ limit: 50 });
+        const message = messages.find(m => m.id.id === messageId);
+
+        if (!message || !message.hasMedia) {
+            return res.status(404).json({ error: 'Mensagem de mídia não encontrada.' });
+        }
+
+        const media = await message.downloadMedia();
+        if (!media) return res.status(404).json({ error: 'Falha ao carregar arquivo de mídia.' });
+
+        const imgBuffer = Buffer.from(media.data, 'base64');
+        res.writeHead(200, {
+            'Content-Type': media.mimetype,
+            'Content-Length': imgBuffer.length,
+            'Content-Disposition': `inline; filename="${media.filename || 'file'}"`
+        });
+        res.end(imgBuffer);
+    } catch (error) {
+        console.error('[API Media V1 Error]', error);
+        res.status(500).json({ error: 'Erro ao carregar mídia', details: error.message });
+    }
+});
+
+// Avatar do contato V1
+router.get('/api/v1/instances/:id/chats/:chatId/avatar', apiKeyMiddleware, checkInstanceReady, async (req, res) => {
+    try {
+        const profilePicUrl = await req.waInstance.client.getProfilePicUrl(req.params.chatId);
+        if (profilePicUrl) {
+            return res.redirect(profilePicUrl);
+        }
+        res.redirect('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%238e94a9"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>');
+    } catch (error) {
+        res.redirect('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%238e94a9"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>');
+    }
+});
+
+// Marcar como Lido V1
+router.post('/api/v1/instances/:id/chats/:chatId/seen', apiKeyMiddleware, checkInstanceReady, async (req, res) => {
+    try {
+        const chat = await req.waInstance.client.getChatById(req.params.chatId);
+        await chat.sendSeen();
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao marcar visualização', details: error.message });
+    }
+});
+
+// Apagar Mensagem V1
+router.delete('/api/v1/instances/:id/chats/:chatId/messages/:messageId', apiKeyMiddleware, checkInstanceReady, async (req, res) => {
+    const { chatId, messageId } = req.params;
+    try {
+        const chat = await req.waInstance.client.getChatById(chatId);
+        const messages = await chat.fetchMessages({ limit: 50 });
+        const message = messages.find(m => m.id.id === messageId);
+        
+        if (!message) {
+            return res.status(404).json({ error: 'Mensagem não encontrada no histórico recente.' });
+        }
+        
+        await message.delete(true);
+        res.status(200).json({ success: true });
+    } catch (error) {
+        console.error('[API Delete Message V1 Error]', error);
+        res.status(500).json({ error: 'Falha ao apagar mensagem', details: error.message });
+    }
+});
+
+// SSE em tempo real V1
+router.get('/api/v1/instances/:id/chat-sse', apiKeyMiddleware, (req, res) => {
+    const instanceId = req.params.id;
+    const instance = instances.get(instanceId);
+    if (!instance) return res.status(404).json({ error: 'Instância não encontrada' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    if (!sseClients.has(instanceId)) {
+        sseClients.set(instanceId, new Set());
+    }
+    const clients = sseClients.get(instanceId);
+    clients.add(res);
+
+    res.write(`data: ${JSON.stringify({ type: 'connected', instanceId })}\n\n`);
+
+    req.on('close', () => {
+        clients.delete(res);
+        if (clients.size === 0) {
+            sseClients.delete(instanceId);
+        }
+    });
+});
+
+// ==========================
+// ROTAS DO PAINEL DE CHAT INTEGRADO
+// ==========================
+
+const sseClients = new Map(); // instanceId -> Set de res
+
+// Registra ouvintes para disparar eventos real-time para as conexões SSE
+clientEvents.on('message', ({ instanceId, msg }) => {
+    const clients = sseClients.get(instanceId);
+    if (clients) {
+        for (const res of clients) {
+            try {
+                res.write(`data: ${JSON.stringify({ type: 'message', message: msg })}\n\n`);
+            } catch (e) {}
+        }
+    }
+});
+
+clientEvents.on('ready', ({ instanceId }) => {
+    const clients = sseClients.get(instanceId);
+    if (clients) {
+        for (const res of clients) {
+            try {
+                res.write(`data: ${JSON.stringify({ type: 'ready' })}\n\n`);
+            } catch (e) {}
+        }
+    }
+});
+
+clientEvents.on('disconnected', ({ instanceId }) => {
+    const clients = sseClients.get(instanceId);
+    if (clients) {
+        for (const res of clients) {
+            try {
+                res.write(`data: ${JSON.stringify({ type: 'disconnected' })}\n\n`);
+            } catch (e) {}
+        }
+    }
+});
+
+clientEvents.on('qr', ({ instanceId, qr }) => {
+    const clients = sseClients.get(instanceId);
+    if (clients) {
+        for (const res of clients) {
+            try {
+                res.write(`data: ${JSON.stringify({ type: 'qr', qr })}\n\n`);
+            } catch (e) {}
+        }
+    }
+});
+
+// SSE endpoint para atualizações do chat em tempo real
+router.get('/api/instances/:id/chat-sse', (req, res) => {
+    const instanceId = req.params.id;
+    const instance = instances.get(instanceId);
+    if (!instance) return res.status(404).json({ error: 'Instância não encontrada' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    if (!sseClients.has(instanceId)) {
+        sseClients.set(instanceId, new Set());
+    }
+    const clients = sseClients.get(instanceId);
+    clients.add(res);
+
+    // Enviar mensagem de ping inicial para estabelecer a conexão
+    res.write(`data: ${JSON.stringify({ type: 'connected', instanceId })}\n\n`);
+
+    req.on('close', () => {
+        clients.delete(res);
+        if (clients.size === 0) {
+            sseClients.delete(instanceId);
+        }
+    });
+});
+
+// Listar conversas (chats) ativas no aparelho
+router.get('/api/instances/:id/chats', checkInstanceReady, async (req, res) => {
+    try {
+        const chats = await req.waInstance.client.getChats();
+        const mapped = [];
+
+        for (const chat of chats) {
+            let lastMsg = null;
+            if (chat.lastMessage) {
+                lastMsg = {
+                    body: chat.lastMessage.body,
+                    fromMe: chat.lastMessage.fromMe,
+                    timestamp: chat.lastMessage.timestamp,
+                    type: chat.lastMessage.type
+                };
+            }
+
+            let chatName = chat.name;
+            // Se o chat for individual e o nome contiver apenas números (não salvo), tenta obter o pushname no WhatsApp
+            if (!chat.isGroup && (!chatName || /^\d+$/.test(chatName.replace(/[\s\+\-]/g, '')))) {
+                try {
+                    const contact = await chat.getContact();
+                    chatName = contact.name || contact.pushname || contact.verifiedName || chat.name || chat.id.user;
+                } catch (e) {}
+            }
+
+            mapped.push({
+                id: chat.id._serialized,
+                name: chatName || chat.id.user,
+                isGroup: chat.isGroup,
+                unreadCount: chat.unreadCount,
+                timestamp: chat.timestamp,
+                lastMessage: lastMsg
+            });
+        }
+
+        console.log(`[Chat] Retornados ${mapped.length} chats para a instância ${req.params.id}`);
+        res.json(mapped);
+    } catch (error) {
+        console.error(`[Chat Erro] Erro ao buscar conversas para a instância ${req.params.id}:`, error);
+        res.status(500).json({ error: 'Erro ao buscar conversas', details: error.message });
+    }
+});
+
+// Obter histórico de mensagens de uma conversa específica
+router.get('/api/instances/:id/chats/:chatId/messages', checkInstanceReady, async (req, res) => {
+    try {
+        const chat = await req.waInstance.client.getChatById(req.params.chatId);
+        const limit = parseInt(req.query.limit) || 50;
+        const messages = await chat.fetchMessages({ limit });
+        
+        const mapped = [];
+        const contactCache = {}; // Cache local para evitar requisições repetidas ao Puppeteer
+
+        for (const msg of messages) {
+            const senderId = msg.author || msg.from;
+            let name = null;
+            
+            if (senderId) {
+                if (contactCache[senderId]) {
+                    name = contactCache[senderId];
+                } else {
+                    // Tenta ler o pushname cached no objeto de dados
+                    name = msg._data?.notifyName || msg._data?.pushname;
+                    
+                    // Se não encontrar, tenta buscar o contato de forma rápida
+                    if (!name) {
+                        try {
+                            const contact = await msg.getContact();
+                            name = contact.name || contact.pushname || contact.verifiedName || senderId.split('@')[0];
+                        } catch (e) {
+                            name = senderId.split('@')[0];
+                        }
+                    }
+                    contactCache[senderId] = name;
+                }
+            }
+
+            mapped.push({
+                id: msg.id.id,
+                body: msg.body,
+                type: msg.type,
+                timestamp: msg.timestamp,
+                fromMe: msg.fromMe,
+                senderName: name,
+                sender: senderId,
+                hasMedia: msg.hasMedia,
+                mimetype: msg._data?.mimetype || msg.mimetype || (msg.type === 'image' ? 'image/jpeg' : msg.type === 'video' ? 'video/mp4' : msg.type === 'audio' || msg.type === 'ptt' ? 'audio/ogg' : 'application/octet-stream'),
+                size: msg._data?.size || 0
+            });
+        }
+
+        res.json(mapped);
+    } catch (error) {
+        console.error(`[Chat Erro] Erro ao buscar mensagens do chat ${req.params.chatId}:`, error);
+        res.status(500).json({ error: 'Erro ao buscar mensagens', details: error.message });
+    }
+});
+
+// Download de mídias de uma mensagem específica
+router.get('/api/instances/:id/messages/:messageId/media', checkInstanceReady, async (req, res) => {
+    const { chatId } = req.query;
+    if (!chatId) return res.status(400).json({ error: 'Parâmetro "chatId" é obrigatório.' });
+
+    try {
+        const chat = await req.waInstance.client.getChatById(chatId);
+        const messages = await chat.fetchMessages({ limit: 100 });
+        const msg = messages.find(m => m.id.id === req.params.messageId);
+        
+        if (!msg || !msg.hasMedia) {
+            return res.status(404).json({ error: 'Mensagem ou mídia não encontrada.' });
+        }
+
+        const media = await msg.downloadMedia();
+        if (!media) {
+            return res.status(500).json({ error: 'Falha ao baixar mídia do WhatsApp.' });
+        }
+
+        const mimetype = media.mimetype || 'application/octet-stream';
+        res.setHeader('Content-Type', mimetype);
+        res.setHeader('Content-Disposition', `inline; filename="${media.filename || 'file'}"`);
+        res.send(Buffer.from(media.data, 'base64'));
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao baixar mídia', details: error.message });
+    }
+});
+
+// Proxy para obter e redirecionar para a foto de perfil do contato
+router.get('/api/instances/:id/chats/:chatId/avatar', checkInstanceReady, async (req, res) => {
+    try {
+        const url = await req.waInstance.client.getProfilePicUrl(req.params.chatId);
+        if (url) {
+            return res.redirect(url);
+        }
+        res.status(404).send('No avatar');
+    } catch (e) {
+        res.status(404).send('Error');
+    }
+});
+
+// Marcar conversa como visualizada/lida
+router.post('/api/instances/:id/chats/:chatId/seen', checkInstanceReady, async (req, res) => {
+    try {
+        const chat = await req.waInstance.client.getChatById(req.params.chatId);
+        await chat.sendSeen();
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao marcar como lido', details: error.message });
+    }
+});
+
+// Verificar se número está cadastrado no WhatsApp
+router.get('/api/instances/:id/contacts/:number/registered', checkInstanceReady, async (req, res) => {
+    try {
+        const number = req.params.number;
+        const formatted = formatNumber(number);
+        const isRegistered = await req.waInstance.client.isRegisteredUser(formatted);
+        res.json({ isRegistered, formatted });
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao verificar contato', details: error.message });
     }
 });
 

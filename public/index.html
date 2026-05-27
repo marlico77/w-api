@@ -25,6 +25,7 @@
             <nav>
                 <a href="#" class="nav-item" data-target="view-dashboard"><i class="fa-solid fa-chart-simple"></i> Dashboard</a>
                 <a href="#" class="nav-item active" data-target="view-instances"><i class="fa-solid fa-desktop"></i> Instâncias Web</a>
+                <a href="#" class="nav-item" data-target="view-chat"><i class="fa-solid fa-comments"></i> Chat</a>
                 <div class="menu-label mt-4">MENSAGENS</div>
                 <a href="#" class="nav-item" data-target="view-campaigns"><i class="fa-solid fa-paper-plane"></i> Mensagens Automáticas</a>
                 <div class="menu-label mt-4">SISTEMA</div>
@@ -198,6 +199,118 @@
                                 </div>
                                 <div class="logs-container" id="logs-container"></div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIEW: CHAT PANEL -->
+                <div id="view-chat" class="view-section hidden">
+                    <!-- Se nenhuma instância ativa -->
+                    <div id="chat-no-instance" class="chat-placeholder">
+                        <div style="color:var(--orange); font-size:2.5rem; margin-bottom:15px;"><i class="fa-solid fa-hand-pointer"></i></div>
+                        <p style="color:var(--orange); font-size:1.1rem; font-weight:600;">Nenhuma instância selecionada.</p>
+                        <p style="font-size:0.85rem; color:var(--text-muted); margin-top:5px;">Vá no menu <strong>Instâncias Web</strong> e clique em <strong>Gerenciar</strong> na instância desejada.</p>
+                    </div>
+                    
+                    <!-- Se instância está offline/iniciando -->
+                    <div id="chat-offline" class="chat-placeholder hidden">
+                        <div class="loader" style="width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.05); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                        <p style="margin-top:20px; color:var(--text-muted); font-size:1rem;">Instância desconectada ou inicializando...</p>
+                        <p style="font-size:0.8rem; color:var(--text-muted); margin-top:5px;">Certifique-se de que o QR Code foi lido e a instância está conectada.</p>
+                    </div>
+                    
+                    <!-- Painel de Chat Principal (oculto por padrão, aparece se conectada) -->
+                    <div id="chat-main-container" class="chat-container hidden">
+                        <!-- Sidebar de Conversas -->
+                        <div class="chat-sidebar">
+                            <div class="chat-sidebar-header">
+                                <h3>Conversas</h3>
+                                <button id="btn-new-chat" class="btn-icon" title="Nova Conversa"><i class="fa-solid fa-plus"></i></button>
+                            </div>
+                            
+                            <div class="chat-search-box">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text" id="chat-search-input" placeholder="Pesquisar ou começar uma nova conversa...">
+                            </div>
+                            
+                            <div class="chat-filters">
+                                <button id="filter-all-chats" class="filter-pill active">Tudo</button>
+                                <button id="filter-unread-chats" class="filter-pill">Não lidas <span id="unread-chats-count" class="badge">0</span></button>
+                            </div>
+                            
+                            <div id="chats-list" class="chats-list">
+                                <!-- Lista de conversas injetadas dinamicamente -->
+                            </div>
+                        </div>
+                        
+                        <!-- Área de Conversa Ativa -->
+                        <div id="chat-area" class="chat-area">
+                            <!-- Placeholder quando nenhuma conversa está aberta -->
+                            <div id="chat-area-placeholder" class="chat-area-placeholder">
+                                <i class="fa-brands fa-whatsapp" style="font-size: 4rem; color: rgba(255,255,255,0.08); margin-bottom: 20px;"></i>
+                                <h3>Selecione uma conversa</h3>
+                                <p style="color: var(--text-muted); font-size: 0.9rem; max-width: 320px; text-align: center; line-height: 1.5;">Envie e receba mensagens de texto e arquivos diretamente da sua API do WhatsApp.</p>
+                            </div>
+                            
+                            <!-- Janela de Chat Ativo -->
+                            <div id="chat-window" class="chat-window hidden">
+                                <!-- Header do Chat -->
+                                    <div class="chat-window-header">
+                                        <div class="chat-contact-info">
+                                            <button id="btn-chat-back" class="btn-icon mobile-only" style="margin-right: 12px; font-size: 1.25rem;" title="Voltar"><i class="fa-solid fa-arrow-left"></i></button>
+                                            <div id="chat-active-avatar" class="chat-avatar-img"></div>
+                                            <div class="chat-contact-text">
+                                                <h4 id="chat-active-name">Nome do Contato</h4>
+                                                <span id="chat-active-details" class="text-muted">Detalhes do contato</span>
+                                            </div>
+                                        </div>
+                                    <div class="chat-header-actions">
+                                        <button class="btn-icon" style="opacity: 0.5; cursor: not-allowed;" title="Chamada de Vídeo (Indisponível)"><i class="fa-solid fa-video"></i></button>
+                                        <button class="btn-icon" style="opacity: 0.5; cursor: not-allowed;" title="Chamada de Voz (Indisponível)"><i class="fa-solid fa-phone"></i></button>
+                                        <button class="btn-icon" title="Pesquisar mensagens"><i class="fa-solid fa-magnifying-glass"></i></button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Área de Mensagens -->
+                                <div id="chat-messages-container" class="chat-messages-container">
+                                    <!-- Mensagens injetadas dinamicamente -->
+                                </div>
+                                
+                                <!-- Input de Mensagem -->
+                                <div class="chat-input-bar">
+                                    <!-- Botão de Anexo -->
+                                    <div class="attachment-wrapper">
+                                        <button id="btn-attach" class="btn-icon" title="Anexar arquivo"><i class="fa-solid fa-plus"></i></button>
+                                        <input type="file" id="chat-file-input" style="display:none;">
+                                    </div>
+                                    
+                                    <input type="text" id="chat-text-input" placeholder="Digite uma mensagem">
+                                    
+                                    <button id="btn-send-chat" class="btn-icon btn-send" title="Enviar"><i class="fa-solid fa-paper-plane"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Nova Conversa -->
+                <div id="modal-new-chat" class="modal hidden">
+                    <div class="modal-content" style="max-width: 450px;">
+                        <div class="modal-header">
+                            <h3>Iniciar Nova Conversa</h3>
+                            <span class="close-modal" id="close-modal-new-chat">&times;</span>
+                        </div>
+                        <div class="modal-body mt-4">
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 15px;">Insira o número com DDI (ex: 55 para Brasil) + DDD + Número. Ex: 5511999999999</p>
+                            <div class="form-group">
+                                <label>Número do WhatsApp</label>
+                                <input type="text" id="new-chat-number" class="form-control" placeholder="5511999999999">
+                            </div>
+                            <div id="new-chat-error" style="color: #ef4444; font-size: 0.85rem; margin-top: 10px;" class="hidden"></div>
+                        </div>
+                        <div class="modal-footer mt-4" style="display: flex; justify-content: flex-end; gap: 10px;">
+                            <button class="btn btn-secondary" id="btn-cancel-new-chat">Cancelar</button>
+                            <button class="btn btn-primary" id="btn-confirm-new-chat">Iniciar Chat</button>
                         </div>
                     </div>
                 </div>
@@ -418,13 +531,76 @@
 
                             <!-- Seção 1: Envio de Mensagens -->
                             <h4 style="color:#fff; margin-bottom:10px; font-size:1.15rem;"><i class="fa-solid fa-code" style="color:var(--primary);"></i> 1. Consumo da API (Integração de Sistemas)</h4>
-                            <p>Para integrar seu sistema financeiro, ERP ou CRM e enviar mensagens automáticas, você deve primeiro criar um <strong>Projeto</strong> na aba correspondente do menu para gerar uma <strong>Chave de API (Secret)</strong> vinculada à instância de WhatsApp correspondente.</p>
+                            <p>Para integrar seu sistema financeiro, ERP ou CRM e enviar mensagens automáticas ou gerenciar chats externamente, você deve primeiro criar um <strong>Projeto</strong> na aba correspondente do menu para gerar uma <strong>Chave de API (Secret)</strong> vinculada à instância de WhatsApp correspondente.</p>
                             
                             <div style="background:rgba(0,0,0,0.35); border-radius:6px; padding:15px; margin: 15px 0; border-left: 3px solid var(--primary);">
                                 <p style="color:#fff; font-weight:600; margin-bottom:5px;">Endpoint de Envio de Texto (POST)</p>
                                 <code style="display:block; padding:10px; background:var(--bg-main); border:1px solid var(--border); border-radius:4px; color:var(--primary); word-break: break-all; font-family: monospace;">
                                     https://[SEU_DOMINIO_OU_IP]/api/v1/instances/[NOME_DA_INSTANCIA]/send-text
                                 </code>
+                            </div>
+
+                            <!-- Endpoints de Chat V1 -->
+                            <h5 style="color:#fff; margin-top:20px; font-size:1.0rem;"><i class="fa-solid fa-comments" style="color:var(--primary); margin-right:5px;"></i> Endpoints de Chat e Eventos (Construção de Chat Externo)</h5>
+                            <p>Se você deseja construir o painel de chat integrado no seu próprio CRM ou sistema externo, estão disponíveis as seguintes rotas autenticadas sob a versão 1 da API:</p>
+                            
+                            <div style="overflow-x:auto; margin:15px 0;">
+                                <table style="width:100%; border-collapse:collapse; text-align:left; font-size:0.85rem; background:rgba(0,0,0,0.2); border-radius:6px;">
+                                    <thead>
+                                        <tr style="border-bottom:2px solid var(--border); color:#fff; background:rgba(255,255,255,0.02)">
+                                            <th style="padding:10px;">Método</th>
+                                            <th style="padding:10px;">Endpoint</th>
+                                            <th style="padding:10px;">Descrição</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr style="border-bottom:1px solid var(--border);">
+                                            <td style="padding:10px; color:#2ecc71; font-weight:bold;">GET</td>
+                                            <td style="padding:10px;"><code>/api/v1/instances/[ID]/chats</code></td>
+                                            <td style="padding:10px; color:var(--text-muted);">Lista conversas ativas (nome, última mensagem, avatar, não lidas)</td>
+                                        </tr>
+                                        <tr style="border-bottom:1px solid var(--border);">
+                                            <td style="padding:10px; color:#2ecc71; font-weight:bold;">GET</td>
+                                            <td style="padding:10px;"><code>/api/v1/instances/[ID]/chats/[CHAT_ID]/messages</code></td>
+                                            <td style="padding:10px; color:var(--text-muted);">Histórico recente de mensagens do chat (parâmetro opcional: <code>?limit=50</code>)</td>
+                                        </tr>
+                                        <tr style="border-bottom:1px solid var(--border);">
+                                            <td style="padding:10px; color:#2ecc71; font-weight:bold;">GET</td>
+                                            <td style="padding:10px;"><code>/api/v1/instances/[ID]/chats/[CHAT_ID]/avatar</code></td>
+                                            <td style="padding:10px; color:var(--text-muted);">Proxy para recuperar a foto de perfil/avatar do contato</td>
+                                        </tr>
+                                        <tr style="border-bottom:1px solid var(--border);">
+                                            <td style="padding:10px; color:#2ecc71; font-weight:bold;">GET</td>
+                                            <td style="padding:10px;"><code>/api/v1/instances/[ID]/messages/[MESSAGE_ID]/media?chatId=[CHAT_ID]</code></td>
+                                            <td style="padding:10px; color:var(--text-muted);">Proxy e download de arquivos de mídia (imagens, áudio, vídeos, documentos)</td>
+                                        </tr>
+                                        <tr style="border-bottom:1px solid var(--border);">
+                                            <td style="padding:10px; color:#3498db; font-weight:bold;">POST</td>
+                                            <td style="padding:10px;"><code>/api/v1/instances/[ID]/send-text</code></td>
+                                            <td style="padding:10px; color:var(--text-muted);">Envia mensagem de texto padrão</td>
+                                        </tr>
+                                        <tr style="border-bottom:1px solid var(--border);">
+                                            <td style="padding:10px; color:#3498db; font-weight:bold;">POST</td>
+                                            <td style="padding:10px;"><code>/api/v1/instances/[ID]/send-media</code></td>
+                                            <td style="padding:10px; color:var(--text-muted);">Envia mídia (JSON payload com <code>base64</code> + <code>mimetype</code>, ou link direto em <code>url</code>)</td>
+                                        </tr>
+                                        <tr style="border-bottom:1px solid var(--border);">
+                                            <td style="padding:10px; color:#3498db; font-weight:bold;">POST</td>
+                                            <td style="padding:10px;"><code>/api/v1/instances/[ID]/chats/[CHAT_ID]/seen</code></td>
+                                            <td style="padding:10px; color:var(--text-muted);">Marca todas as mensagens da conversa como visualizadas/lidas</td>
+                                        </tr>
+                                        <tr style="border-bottom:1px solid var(--border);">
+                                            <td style="padding:10px; color:#e74c3c; font-weight:bold;">DELETE</td>
+                                            <td style="padding:10px;"><code>/api/v1/instances/[ID]/chats/[CHAT_ID]/messages/[MESSAGE_ID]</code></td>
+                                            <td style="padding:10px; color:var(--text-muted);">Apaga/revoga a mensagem para todos no WhatsApp</td>
+                                        </tr>
+                                        <tr style="border-bottom:1px solid var(--border);">
+                                            <td style="padding:10px; color:#2ecc71; font-weight:bold;">GET</td>
+                                            <td style="padding:10px;"><code>/api/v1/instances/[ID]/chat-sse?api_key=[SUA_CHAVE]</code></td>
+                                            <td style="padding:10px; color:var(--text-muted);">Canal Server-Sent Events (SSE) para escutar e receber mensagens/atualizações em tempo real</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
 
                             <h5 style="color:#fff; margin-top:20px; font-size:0.95rem;">Cabeçalhos (Headers) Necessários</h5>
@@ -490,6 +666,15 @@ curl_setopt_array($curl, [
 $response = curl_exec($curl);
 curl_close($curl);
 echo $response;</pre>
+                            </div>
+
+                            <div style="margin-top:25px; background:rgba(0,168,132,0.08); border:1px solid rgba(0,168,132,0.15); border-radius:6px; padding:20px;">
+                                <h5 style="color:#fff; margin-bottom:10px; font-size:1.0rem; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-laptop-code" style="color:var(--primary);"></i> Exemplo Prático: Cliente de Chat Externo Completo (Demo)</h5>
+                                <p style="margin-bottom:15px; font-size:0.88rem;">Para facilitar a integração e demonstrar o consumo completo dos endpoints de chat V1 e da stream SSE (Server-Sent Events) em tempo real, disponibilizamos um <strong>Cliente de Chat Demonstrativo Standalone</strong>.</p>
+                                <p style="margin-bottom:15px; font-size:0.88rem;">Esta aplicação demonstrativa é autossuficiente e independente do painel principal, servindo como modelo de código ideal (boilerplate) para você integrar no seu próprio ERP, CRM ou sistema de atendimento ao cliente.</p>
+                                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:15px;">
+                                    <a href="/chat-demo.html" target="_blank" class="btn-action green" style="text-decoration:none; display:inline-flex; align-items:center; gap:8px; font-weight:600; font-size:0.85rem;"><i class="fa-solid fa-up-right-from-square"></i> Abrir Demo do Chat Externo</a>
+                                </div>
                             </div>
 
                             <hr style="border:0; border-top:1px solid var(--border); margin:30px 0;">

@@ -12,10 +12,12 @@ const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
 const db = require('./database');
+const EventEmitter = require('events');
 
 dotenv.config();
 
 const instances = new Map();
+const clientEvents = new EventEmitter();
 
 // Helper para disparar webhooks específicos
 async function fireWebhook(url, payload) {
@@ -79,7 +81,11 @@ async function createInstance(configData) {
 
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: instanceId }),
-        puppeteer: puppeteerOptions
+        puppeteer: puppeteerOptions,
+        webVersionCache: {
+            type: 'remote',
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+        }
     });
 
     instanceData.client = client;
@@ -89,6 +95,7 @@ async function createInstance(configData) {
         console.log(`[${instanceId}] Escaneie o QR Code`);
         instanceData.status = 'QR_READY';
         instanceData.qrCode = qr;
+        clientEvents.emit('qr', { instanceId, qr });
     });
 
     client.on('ready', () => {
@@ -96,6 +103,7 @@ async function createInstance(configData) {
         instanceData.status = 'CONNECTED';
         instanceData.qrCode = null;
         fireWebhook(configData.wh_connect, { event: 'connected', instance: instanceId });
+        clientEvents.emit('ready', { instanceId });
     });
 
     client.on('disconnected', (reason) => {
@@ -103,6 +111,7 @@ async function createInstance(configData) {
         instanceData.status = 'DISCONNECTED';
         instanceData.qrCode = null;
         fireWebhook(configData.wh_disconnect, { event: 'disconnected', instance: instanceId, reason });
+        clientEvents.emit('disconnected', { instanceId, reason });
     });
 
     // Lógica Avançada (Z-API Features)
@@ -110,6 +119,34 @@ async function createInstance(configData) {
         // Ao Receber
         const payload = { event: 'message_received', instance: instanceId, msg };
         fireWebhook(configData.wh_message_in, payload);
+
+        // Propaga evento SSE de mensagem recebida com mapeamento robusto
+        let senderName = null;
+        const senderId = msg.author || msg.from;
+        try {
+            const contact = await msg.getContact();
+            senderName = contact.name || contact.pushname || contact.verifiedName || senderId.split('@')[0];
+        } catch (e) {
+            senderName = msg._data?.notifyName || msg._data?.pushname || senderId.split('@')[0];
+        }
+
+        clientEvents.emit('message', {
+            instanceId,
+            msg: {
+                id: msg.id.id,
+                body: msg.body,
+                type: msg.type,
+                timestamp: msg.timestamp,
+                fromMe: msg.fromMe,
+                from: msg.from,
+                to: msg.to,
+                sender: senderId,
+                senderName: senderName,
+                hasMedia: msg.hasMedia,
+                mimetype: msg._data?.mimetype || msg.mimetype || (msg.type === 'image' ? 'image/jpeg' : msg.type === 'video' ? 'video/mp4' : msg.type === 'audio' || msg.type === 'ptt' ? 'audio/ogg' : 'application/octet-stream'),
+                size: msg._data?.size || 0
+            }
+        });
 
         // Auto-read mensagens
         if (configData.opt_read_msg) {
@@ -124,11 +161,97 @@ async function createInstance(configData) {
         // Ignora as que recebemos (já tratadas acima)
         if (!msg.fromMe) return;
 
+        // Propaga evento SSE de mensagem enviada (por nós) com mapeamento robusto
+        let senderName = null;
+        const senderId = msg.author || msg.from;
+        try {
+            const contact = await msg.getContact();
+            senderName = contact.name || contact.pushname || contact.verifiedName || senderId.split('@')[0];
+        } catch (e) {
+            senderName = msg._data?.notifyName || msg._data?.pushname || senderId.split('@')[0];
+        }
+
+        clientEvents.emit('message', {
+            instanceId,
+            msg: {
+                id: msg.id.id,
+                body: msg.body,
+                type: msg.type,
+                timestamp: msg.timestamp,
+                fromMe: msg.fromMe,
+                from: msg.from,
+                to: msg.to,
+                sender: senderId,
+                senderName: senderName,
+                hasMedia: msg.hasMedia,
+                mimetype: msg._data?.mimetype || msg.mimetype || (msg.type === 'image' ? 'image/jpeg' : msg.type === 'video' ? 'video/mp4' : msg.type === 'audio' || msg.type === 'ptt' ? 'audio/ogg' : 'application/octet-stream'),
+                size: msg._data?.size || 0
+            }
+        });
+
         // Ao Enviar (Só dispara se notify_own_msg for ativado)
         if (configData.notify_own_msg) {
             const payload = { event: 'message_sent', instance: instanceId, msg };
             fireWebhook(configData.wh_message_out, payload);
         }
+    });
+
+    client.on('message_revoke_everyone', async (after, before) => {
+        const senderId = after.author || after.from;
+        let senderName = null;
+        try {
+            const contact = await after.getContact();
+            senderName = contact.name || contact.pushname || contact.verifiedName || senderId.split('@')[0];
+        } catch (e) {
+            senderName = after._data?.notifyName || after._data?.pushname || senderId.split('@')[0];
+        }
+
+        clientEvents.emit('message', {
+            instanceId,
+            msg: {
+                id: after.id.id,
+                body: '',
+                type: 'revoked',
+                timestamp: after.timestamp,
+                fromMe: after.fromMe,
+                from: after.from,
+                to: after.to,
+                sender: senderId,
+                senderName: senderName,
+                hasMedia: false,
+                mimetype: 'application/octet-stream',
+                size: 0
+            }
+        });
+    });
+
+    client.on('message_revoke_me', async (msg) => {
+        const senderId = msg.author || msg.from;
+        let senderName = null;
+        try {
+            const contact = await msg.getContact();
+            senderName = contact.name || contact.pushname || contact.verifiedName || senderId.split('@')[0];
+        } catch (e) {
+            senderName = msg._data?.notifyName || msg._data?.pushname || senderId.split('@')[0];
+        }
+
+        clientEvents.emit('message', {
+            instanceId,
+            msg: {
+                id: msg.id.id,
+                body: '',
+                type: 'revoked',
+                timestamp: msg.timestamp,
+                fromMe: msg.fromMe,
+                from: msg.from,
+                to: msg.to,
+                sender: senderId,
+                senderName: senderName,
+                hasMedia: false,
+                mimetype: 'application/octet-stream',
+                size: 0
+            }
+        });
     });
 
     client.on('call', async (call) => {
@@ -247,6 +370,7 @@ module.exports = {
     deleteInstance,
     disconnectInstance,
     destroyAllInstances,
+    clientEvents,
     addMessageLog,
     MessageMedia
 };

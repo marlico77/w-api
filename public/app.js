@@ -35,7 +35,7 @@ navItems.forEach(item => {
     item.addEventListener('click', (e) => {
         e.preventDefault();
         const target = item.getAttribute('data-target');
-        if (target === 'view-dashboard' && !activeInstanceId) {
+        if ((target === 'view-dashboard' || target === 'view-chat') && !activeInstanceId) {
             alert('Selecione uma instância na aba "Instâncias Web" primeiro.');
             return;
         }
@@ -50,6 +50,37 @@ function switchView(viewId) {
     document.getElementById(viewId).classList.remove('hidden');
     currentView = viewId;
     
+    // Fechar SSE se mudar de tela
+    if (typeof closeChatSSE === 'function') closeChatSSE();
+    
+    // Atualizar títulos na Topbar de forma elegante
+    const titleEl = document.getElementById('page-title-text');
+    const subtitleEl = document.getElementById('page-subtitle-text');
+    if (titleEl && subtitleEl) {
+        if (viewId === 'view-instances') {
+            titleEl.textContent = 'Instâncias Web';
+            subtitleEl.textContent = 'Listagem de instâncias web';
+        } else if (viewId === 'view-dashboard') {
+            titleEl.textContent = 'Dashboard';
+            subtitleEl.textContent = `Gerenciamento da instância: ${activeInstanceId}`;
+        } else if (viewId === 'view-chat') {
+            titleEl.textContent = 'Chat Integrado';
+            subtitleEl.textContent = `Conversas em tempo real da instância: ${activeInstanceId}`;
+        } else if (viewId === 'view-campaigns') {
+            titleEl.textContent = 'Mensagens Automáticas';
+            subtitleEl.textContent = 'Envios em lote e campanhas agendadas';
+        } else if (viewId === 'view-projects') {
+            titleEl.textContent = 'Projetos (API)';
+            subtitleEl.textContent = 'Gerenciamento de chaves de API e integração';
+        } else if (viewId === 'view-documentation') {
+            titleEl.textContent = 'Documentação';
+            subtitleEl.textContent = 'Guia de integração e uso da API';
+        } else if (viewId === 'view-form') {
+            titleEl.textContent = 'Configurações de Instância';
+            subtitleEl.textContent = 'Configurar dados e webhooks da instância';
+        }
+    }
+    
     clearInterval(pollInterval);
     if (viewId === 'view-instances') {
         fetchInstances();
@@ -58,6 +89,8 @@ function switchView(viewId) {
         lastStatus = '';
         fetchInstanceData();
         pollInterval = setInterval(fetchInstanceData, 3000);
+    } else if (viewId === 'view-chat') {
+        initChatView();
     }
 }
 
@@ -1042,6 +1075,661 @@ btnDisconnectInstance.addEventListener('click', async (e) => {
         fetchInstanceData();
     }
 });
+
+// ==========================================
+// PAINEL DE CHAT INTEGRADO (LÓGICA FRONTEND)
+// ==========================================
+
+let chatList = [];
+let currentChatFilter = 'all'; // 'all' (respondidas), 'unread' (não respondidas)
+let chatSearchQuery = '';
+let activeChatId = null;
+let sseSource = null;
+
+// Elementos da interface do Chat
+const elChatNoInstance = document.getElementById('chat-no-instance');
+const elChatOffline = document.getElementById('chat-offline');
+const elChatMainContainer = document.getElementById('chat-main-container');
+const elChatsList = document.getElementById('chats-list');
+const elChatMessagesContainer = document.getElementById('chat-messages-container');
+const elChatWindow = document.getElementById('chat-window');
+const elChatAreaPlaceholder = document.getElementById('chat-area-placeholder');
+
+const elChatActiveAvatar = document.getElementById('chat-active-avatar');
+const elChatActiveName = document.getElementById('chat-active-name');
+const elChatActiveDetails = document.getElementById('chat-active-details');
+
+const elChatTextInput = document.getElementById('chat-text-input');
+const elBtnSendChat = document.getElementById('btn-send-chat');
+const elBtnAttach = document.getElementById('btn-attach');
+const elChatFileInput = document.getElementById('chat-file-input');
+const elChatSearchInput = document.getElementById('chat-search-input');
+
+const elFilterAllChats = document.getElementById('filter-all-chats');
+const elFilterUnreadChats = document.getElementById('filter-unread-chats');
+const elUnreadChatsCount = document.getElementById('unread-chats-count');
+
+const elBtnNewChat = document.getElementById('btn-new-chat');
+const elModalNewChat = document.getElementById('modal-new-chat');
+const elCloseModalNewChat = document.getElementById('close-modal-new-chat');
+const elBtnCancelNewChat = document.getElementById('btn-cancel-new-chat');
+const elBtnConfirmNewChat = document.getElementById('btn-confirm-new-chat');
+const elNewChatNumber = document.getElementById('new-chat-number');
+const elNewChatError = document.getElementById('new-chat-error');
+
+// Iniciar a aba do Chat
+async function initChatView() {
+    closeChatSSE();
+    
+    if (!activeInstanceId) {
+        elChatNoInstance.classList.remove('hidden');
+        elChatOffline.classList.add('hidden');
+        elChatMainContainer.classList.add('hidden');
+        return;
+    }
+
+    try {
+        const resStatus = await fetch(`${API_BASE}/api/instances/${activeInstanceId}/status`);
+        if (!resStatus.ok) throw new Error();
+        
+        const dataStatus = await resStatus.json();
+        if (dataStatus.status !== 'CONNECTED') {
+            elChatNoInstance.classList.add('hidden');
+            elChatOffline.classList.remove('hidden');
+            elChatMainContainer.classList.add('hidden');
+            return;
+        }
+
+        elChatNoInstance.classList.add('hidden');
+        elChatOffline.classList.add('hidden');
+        elChatMainContainer.classList.remove('hidden');
+
+        await fetchChats();
+        setupChatSSE();
+    } catch (e) {
+        elChatNoInstance.classList.add('hidden');
+        elChatOffline.classList.remove('hidden');
+        elChatMainContainer.classList.add('hidden');
+    }
+}
+
+// Buscar conversas da API
+async function fetchChats() {
+    try {
+        const res = await fetch(`${API_BASE}/api/instances/${activeInstanceId}/chats`);
+        if (res.ok) {
+            chatList = await res.json();
+            renderChatsList();
+        }
+    } catch (error) {
+        console.error("Erro ao carregar conversas:", error);
+    }
+}
+
+// Iniciar conexão Server-Sent Events (SSE) para tempo real
+function setupChatSSE() {
+    closeChatSSE();
+    
+    sseSource = new EventSource(`${API_BASE}/api/instances/${activeInstanceId}/chat-sse`);
+    
+    sseSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'message') {
+                handleIncomingSSEMessage(data.message);
+            } else if (data.type === 'disconnected') {
+                initChatView();
+            } else if (data.type === 'ready') {
+                initChatView();
+            }
+        } catch (e) {
+            console.error("Erro ao processar SSE:", e);
+        }
+    };
+
+    sseSource.onerror = () => {
+        console.log("Erro no EventSource SSE. Tentando reconectar...");
+    };
+}
+
+function closeChatSSE() {
+    if (sseSource) {
+        sseSource.close();
+        sseSource = null;
+    }
+}
+
+// Comparar dois JIDs desconsiderando sufixos (ex: @c.us vs @lid)
+function isSameJID(id1, id2) {
+    if (!id1 || !id2) return false;
+    return id1.split('@')[0] === id2.split('@')[0];
+}
+
+// Tratar mensagem recebida via SSE (Tempo Real)
+function handleIncomingSSEMessage(msg) {
+    const chatId = msg.fromMe ? msg.to : msg.from;
+    
+    let chat = chatList.find(c => isSameJID(c.id, chatId));
+    if (!chat) {
+        chat = {
+            id: chatId,
+            name: chatId.split('@')[0],
+            isGroup: chatId.includes('@g.us'),
+            unreadCount: msg.fromMe ? 0 : 1,
+            timestamp: msg.timestamp,
+            lastMessage: {
+                body: msg.body,
+                fromMe: msg.fromMe,
+                timestamp: msg.timestamp,
+                type: msg.type
+            }
+        };
+        chatList.unshift(chat);
+    } else {
+        chat.timestamp = msg.timestamp;
+        chat.lastMessage = {
+            body: msg.body,
+            fromMe: msg.fromMe,
+            timestamp: msg.timestamp,
+            type: msg.type
+        };
+        if (!msg.fromMe && !isSameJID(activeChatId, chatId)) {
+            chat.unreadCount++;
+        }
+        
+        chatList = [chat, ...chatList.filter(c => !isSameJID(c.id, chatId))];
+    }
+
+    renderChatsList();
+
+    if (isSameJID(activeChatId, chatId)) {
+        // Se a mensagem já existe no DOM (ex: quando foi deletada/revogada em outro aparelho), atualiza seu estado
+        const existingMsgDiv = elChatMessagesContainer.querySelector(`[data-msg-id="${msg.id}"]`);
+        if (existingMsgDiv) {
+            if (msg.type === 'revoked') {
+                const date = new Date(msg.timestamp * 1000);
+                const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                let htmlContent = '';
+                if (!msg.fromMe && activeChatId.includes('@g.us') && msg.sender) {
+                    const senderLabel = msg.senderName || msg.sender.split('@')[0];
+                    htmlContent += `<span class="msg-sender">${escapeHTML(senderLabel)}</span>`;
+                }
+                htmlContent += `<p style="font-style: italic; opacity: 0.8; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-ban" style="font-size: 0.9rem;"></i>
+                    Mensagem apagada
+                </p>`;
+                htmlContent += `<span class="msg-time">${timeStr}</span>`;
+                existingMsgDiv.innerHTML = htmlContent;
+                
+                // Remove o botão de apagar se for nossa
+                const delBtn = existingMsgDiv.querySelector('.msg-delete-btn');
+                if (delBtn) delBtn.remove();
+            }
+            return;
+        }
+
+        appendMessageBubble({
+            id: msg.id,
+            body: msg.body,
+            type: msg.type,
+            timestamp: msg.timestamp,
+            fromMe: msg.fromMe,
+            sender: msg.sender,
+            senderName: msg.senderName,
+            hasMedia: msg.hasMedia,
+            mimetype: msg.mimetype,
+            size: msg.size
+        });
+        
+        fetch(`${API_BASE}/api/instances/${activeInstanceId}/chats/${chatId}/seen`, { method: 'POST' });
+        chat.unreadCount = 0;
+        renderChatsList();
+    }
+}
+
+// Renderizar lista de chats com filtros de Marlon Souza
+function renderChatsList() {
+    elChatsList.innerHTML = '';
+    
+    const filtered = chatList.filter(chat => {
+        const nameMatches = chat.name.toLowerCase().includes(chatSearchQuery.toLowerCase()) || 
+                            chat.id.includes(chatSearchQuery);
+        if (!nameMatches) return false;
+
+        const lastMsgFromMe = chat.lastMessage ? chat.lastMessage.fromMe : false;
+        const hasUnread = chat.unreadCount > 0;
+
+        if (currentChatFilter === 'unread') {
+            // Não lidas = não respondidas (tem mensagens não lidas OU o último envio não foi nosso)
+            return hasUnread || !lastMsgFromMe;
+        } else {
+            // Tudo = respondidas (não tem mensagens não lidas E o último envio foi nosso)
+            return !hasUnread && lastMsgFromMe;
+        }
+    });
+
+    const unansweredCount = chatList.filter(chat => {
+        const lastMsgFromMe = chat.lastMessage ? chat.lastMessage.fromMe : false;
+        const hasUnread = chat.unreadCount > 0;
+        return hasUnread || !lastMsgFromMe;
+    }).length;
+
+    elUnreadChatsCount.textContent = unansweredCount;
+
+    if (filtered.length === 0) {
+        elChatsList.innerHTML = '<p style="text-align:center; color:var(--text-muted); margin-top:20px; font-size:0.85rem;">Nenhuma conversa nesta lista.</p>';
+        return;
+    }
+
+    filtered.forEach(chat => {
+        const div = document.createElement('div');
+        div.className = `chat-item ${isSameJID(activeChatId, chat.id) ? 'active' : ''}`;
+        
+        let timeStr = '';
+        if (chat.timestamp) {
+            const date = new Date(chat.timestamp * 1000);
+            timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        let bodyPreview = '';
+        if (chat.lastMessage) {
+            if (chat.lastMessage.type === 'chat') {
+                bodyPreview = chat.lastMessage.body;
+            } else {
+                bodyPreview = `📷 [Arquivo / Mídia]`;
+            }
+        }
+
+        const unreadBadge = chat.unreadCount > 0 
+            ? `<span class="chat-unread-badge">${chat.unreadCount}</span>` 
+            : '';
+
+        div.innerHTML = `
+            <div class="chat-avatar-img" style="background-image: url('${API_BASE}/api/instances/${activeInstanceId}/chats/${chat.id}/avatar')"></div>
+            <div class="chat-info">
+                <div class="chat-meta">
+                    <span class="chat-name">${escapeHTML(chat.name)}</span>
+                    <span class="chat-time">${timeStr}</span>
+                </div>
+                <div class="chat-last-msg">
+                    <span class="chat-msg-text">${chat.lastMessage?.fromMe ? '<i class="fa-solid fa-check-double" style="color:var(--primary); font-size:0.75rem; margin-right:3px;"></i>' : ''}${escapeHTML(bodyPreview)}</span>
+                    ${unreadBadge}
+                </div>
+            </div>
+        `;
+        
+        div.addEventListener('click', () => selectChat(chat));
+        elChatsList.appendChild(div);
+    });
+}
+
+// Selecionar e abrir um chat específico
+async function selectChat(chat) {
+    activeChatId = chat.id;
+    
+    chat.unreadCount = 0;
+    renderChatsList();
+
+    // Adiciona classe de selecionado no mobile para abrir a janela de mensagens
+    elChatMainContainer.classList.add('chat-selected');
+
+    elChatAreaPlaceholder.classList.add('hidden');
+    elChatWindow.classList.remove('hidden');
+    
+    elChatActiveName.textContent = chat.name;
+    elChatActiveDetails.textContent = chat.isGroup ? 'Grupo do WhatsApp' : chat.id.split('@')[0];
+    elChatActiveAvatar.style.backgroundImage = `url('${API_BASE}/api/instances/${activeInstanceId}/chats/${chat.id}/avatar')`;
+
+    fetch(`${API_BASE}/api/instances/${activeInstanceId}/chats/${chat.id}/seen`, { method: 'POST' });
+
+    elChatMessagesContainer.innerHTML = '<div style="display:flex; justify-content:center; padding:20px;"><div class="loader"></div></div>';
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/instances/${activeInstanceId}/chats/${chat.id}/messages`);
+        if (res.ok) {
+            const messages = await res.json();
+            elChatMessagesContainer.innerHTML = '';
+            
+            if (messages.length === 0) {
+                elChatMessagesContainer.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:20px;">Nenhuma mensagem nesta conversa.</p>';
+            } else {
+                messages.forEach(msg => appendMessageBubble(msg));
+            }
+            scrollToBottom();
+        }
+    } catch (error) {
+        console.error("Erro ao carregar mensagens:", error);
+        elChatMessagesContainer.innerHTML = '<p style="text-align:center; color:#ef4444; padding:20px;">Erro ao carregar histórico de mensagens.</p>';
+    }
+}
+
+// Renderizar e anexar bolha de mensagem no histórico
+function appendMessageBubble(msg) {
+    const div = document.createElement('div');
+    div.className = `msg-bubble ${msg.fromMe ? 'sent' : 'received'}`;
+    div.setAttribute('data-msg-id', msg.id);
+    
+    const date = new Date(msg.timestamp * 1000);
+    const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    let htmlContent = '';
+    
+    // Caso a mensagem tenha sido apagada/revogada
+    if (msg.type === 'revoked') {
+        if (!msg.fromMe && activeChatId.includes('@g.us') && msg.sender) {
+            const senderLabel = msg.senderName || msg.sender.split('@')[0];
+            htmlContent += `<span class="msg-sender">${escapeHTML(senderLabel)}</span>`;
+        }
+        htmlContent += `<p style="font-style: italic; opacity: 0.8; display: flex; align-items: center; gap: 6px;">
+            <i class="fa-solid fa-ban" style="font-size: 0.9rem;"></i>
+            Mensagem apagada
+        </p>`;
+        htmlContent += `<span class="msg-time">${timeStr}</span>`;
+        div.innerHTML = htmlContent;
+        elChatMessagesContainer.appendChild(div);
+        scrollToBottom();
+        return;
+    }
+    
+    if (!msg.fromMe && activeChatId.includes('@g.us') && msg.sender) {
+        const senderLabel = msg.senderName || msg.sender.split('@')[0];
+        htmlContent += `<span class="msg-sender">${escapeHTML(senderLabel)}</span>`;
+    }
+    
+    if (msg.fromMe) {
+        htmlContent += `<button class="msg-delete-btn" onclick="deleteChatMessage('${msg.id}')" title="Apagar para todos"><i class="fa-solid fa-trash-can"></i></button>`;
+    }
+    
+    if (msg.hasMedia) {
+        const maxSize = 150 * 1024 * 1024;
+        if (msg.size && msg.size > maxSize) {
+            htmlContent += `
+                <p style="font-style: italic; color: var(--text-muted); margin-bottom: 5px;">
+                    [Arquivo com mais de 150MB. Para visualizar ou baixar esta mídia, utilize o aplicativo oficial do WhatsApp.]
+                </p>
+            `;
+        } else {
+            const mediaUrl = `${API_BASE}/api/instances/${activeInstanceId}/messages/${msg.id}/media?chatId=${activeChatId}`;
+            const mt = msg.mimetype || '';
+            
+            if (mt.startsWith('image/')) {
+                htmlContent += `
+                    <div class="msg-media-container">
+                        <img src="${mediaUrl}" class="msg-media-img" onclick="window.open('${mediaUrl}')" alt="Imagem">
+                    </div>
+                `;
+            } else if (mt.startsWith('video/')) {
+                htmlContent += `
+                    <div class="msg-media-container">
+                        <video src="${mediaUrl}" controls class="msg-media-video"></video>
+                    </div>
+                `;
+            } else if (mt.startsWith('audio/')) {
+                htmlContent += `
+                    <div class="msg-media-container">
+                        <audio src="${mediaUrl}" controls class="msg-media-audio"></audio>
+                    </div>
+                `;
+            } else {
+                const filename = msg.body || 'arquivo';
+                htmlContent += `
+                    <div class="msg-file-download">
+                        <i class="fa-solid fa-file-arrow-down"></i>
+                        <div class="msg-file-info">
+                            <div class="msg-file-name" title="${escapeHTML(filename)}">${escapeHTML(filename)}</div>
+                        </div>
+                        <a href="${mediaUrl}" target="_blank" download="${escapeHTML(filename)}" class="msg-file-btn"><i class="fa-solid fa-arrow-down-long"></i></a>
+                    </div>
+                `;
+            }
+        }
+    }
+    
+    if (msg.body && (!msg.hasMedia || msg.mimetype?.startsWith('audio/')) && !(msg.size && msg.size > 150 * 1024 * 1024)) {
+        htmlContent += `<p>${escapeHTML(msg.body).replace(/\n/g, '<br>')}</p>`;
+    }
+    
+    htmlContent += `<span class="msg-time">${timeStr}</span>`;
+    div.innerHTML = htmlContent;
+    
+    elChatMessagesContainer.appendChild(div);
+    scrollToBottom();
+}
+
+function scrollToBottom() {
+    elChatMessagesContainer.scrollTop = elChatMessagesContainer.scrollHeight;
+}
+
+// Enviar Mensagem de Texto
+async function sendChatTextMessage() {
+    const text = elChatTextInput.value.trim();
+    if (!text || !activeChatId) return;
+    
+    elChatTextInput.value = '';
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/instances/${activeInstanceId}/send-message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ number: activeChatId, message: text })
+        });
+        
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.details || data.error || 'Erro desconhecido');
+        }
+    } catch (e) {
+        console.error('Erro ao enviar mensagem:', e);
+        showToast('Erro', `Não foi possível enviar a mensagem: ${e.message}`, 'error');
+    }
+}
+
+// Apagar mensagem para todos (Revogar)
+async function deleteChatMessage(messageId) {
+    if (!confirm('Deseja apagar esta mensagem para todos?')) return;
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/instances/${activeInstanceId}/chats/${activeChatId}/messages/${messageId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.details || data.error || 'Erro ao apagar mensagem');
+        }
+        
+        showToast('Sucesso', 'Mensagem apagada para todos.', 'success');
+        
+        // Atualiza o balão de mensagem no DOM localmente
+        const existingMsgDiv = elChatMessagesContainer.querySelector(`[data-msg-id="${messageId}"]`);
+        if (existingMsgDiv) {
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            existingMsgDiv.innerHTML = `
+                <p style="font-style: italic; opacity: 0.8; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-ban" style="font-size: 0.9rem;"></i>
+                    Mensagem apagada
+                </p>
+                <span class="msg-time">${timeStr}</span>
+            `;
+            // Remove o botão de apagar
+            const delBtn = existingMsgDiv.querySelector('.msg-delete-btn');
+            if (delBtn) delBtn.remove();
+        }
+    } catch (error) {
+        console.error('Erro ao apagar mensagem:', error);
+        showToast('Erro', `Não foi possível apagar a mensagem: ${error.message}`, 'error');
+    }
+}
+
+// Tratar Seleção de Arquivo e validação do limite de 150MB
+async function handleChatFileSelect(e) {
+    const file = e.target.files[0];
+    if (!file || !activeChatId) return;
+    
+    const maxSize = 150 * 1024 * 1024;
+    if (file.size > maxSize) {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const div = document.createElement('div');
+        div.className = 'msg-bubble received';
+        div.style.alignSelf = 'center';
+        div.style.background = 'rgba(239, 68, 68, 0.1)';
+        div.style.border = '1px solid rgba(239, 68, 68, 0.2)';
+        div.innerHTML = `
+            <p style="font-style: italic; color: #ef4444; margin-bottom: 5px;">
+                O arquivo "${escapeHTML(file.name)}" (${(file.size / (1024 * 1024)).toFixed(1)} MB) é maior que 150MB e não pôde ser enviado por aqui. Por favor, utilize o aplicativo oficial do WhatsApp para enviar mídias deste tamanho.
+            </p>
+            <span class="msg-time">${timeStr}</span>
+        `;
+        elChatMessagesContainer.appendChild(div);
+        scrollToBottom();
+        
+        elChatFileInput.value = '';
+        return;
+    }
+    
+    showToast('Enviando', 'Processando arquivo de mídia...', 'success');
+    
+    const reader = new FileReader();
+    reader.onload = async () => {
+        const base64Data = reader.result.split(',')[1];
+        
+        try {
+            const res = await fetch(`${API_BASE}/api/instances/${activeInstanceId}/send-media`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    number: activeChatId,
+                    base64: base64Data,
+                    mimetype: file.type,
+                    filename: file.name,
+                    caption: ''
+                })
+            });
+            
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.details || data.error || 'Erro desconhecido');
+            }
+            
+            showToast('Sucesso', 'Arquivo enviado com sucesso.', 'success');
+        } catch (err) {
+            console.error('Erro ao enviar arquivo:', err);
+            showToast('Erro', `Falha ao enviar arquivo de mídia: ${err.message}`, 'error');
+        } finally {
+            elChatFileInput.value = '';
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+// Iniciar Nova Conversa (Modal)
+async function startNewChat() {
+    const number = elNewChatNumber.value.trim();
+    if (!number) return;
+    
+    elNewChatError.classList.add('hidden');
+    elBtnConfirmNewChat.disabled = true;
+    elBtnConfirmNewChat.textContent = 'Verificando...';
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/instances/${activeInstanceId}/contacts/${number}/registered`);
+        if (!res.ok) throw new Error("Erro na comunicação");
+        
+        const data = await res.json();
+        if (data.isRegistered) {
+            elModalNewChat.classList.add('hidden');
+            elNewChatNumber.value = '';
+            
+            const newChat = {
+                id: data.formatted,
+                name: number,
+                isGroup: false,
+                unreadCount: 0,
+                timestamp: Math.floor(Date.now() / 1000),
+                lastMessage: null
+            };
+            
+            if (!chatList.find(c => isSameJID(c.id, data.formatted))) {
+                chatList.unshift(newChat);
+            }
+            
+            renderChatsList();
+            selectChat(newChat);
+        } else {
+            elNewChatError.textContent = 'Este número de telefone não possui WhatsApp ativo.';
+            elNewChatError.classList.remove('hidden');
+        }
+    } catch (e) {
+        elNewChatError.textContent = 'Erro ao verificar o número de telefone.';
+        elNewChatError.classList.remove('hidden');
+    } finally {
+        elBtnConfirmNewChat.disabled = false;
+        elBtnConfirmNewChat.textContent = 'Iniciar Chat';
+    }
+}
+
+// Configurar Event Listeners do Chat
+elFilterAllChats.addEventListener('click', () => {
+    currentChatFilter = 'all';
+    elFilterAllChats.classList.add('active');
+    elFilterUnreadChats.classList.remove('active');
+    renderChatsList();
+});
+
+elFilterUnreadChats.addEventListener('click', () => {
+    currentChatFilter = 'unread';
+    elFilterAllChats.classList.remove('active');
+    elFilterUnreadChats.classList.add('active');
+    renderChatsList();
+});
+
+elChatSearchInput.addEventListener('input', (e) => {
+    chatSearchQuery = e.target.value;
+    renderChatsList();
+});
+
+elBtnSendChat.addEventListener('click', sendChatTextMessage);
+elChatTextInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendChatTextMessage();
+});
+
+elBtnAttach.addEventListener('click', () => elChatFileInput.click());
+elChatFileInput.addEventListener('change', handleChatFileSelect);
+
+// Modal de Nova Conversa
+elBtnNewChat.addEventListener('click', () => {
+    elNewChatError.classList.add('hidden');
+    elModalNewChat.classList.remove('hidden');
+    elNewChatNumber.focus();
+});
+
+elCloseModalNewChat.addEventListener('click', () => elModalNewChat.classList.add('hidden'));
+elBtnCancelNewChat.addEventListener('click', () => elModalNewChat.classList.add('hidden'));
+elBtnConfirmNewChat.addEventListener('click', startNewChat);
+elNewChatNumber.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') startNewChat();
+});
+
+// Botão de voltar no mobile
+document.getElementById('btn-chat-back').addEventListener('click', () => {
+    activeChatId = null;
+    elChatMainContainer.classList.remove('chat-selected');
+    renderChatsList();
+});
+
+// Helper de escape
+function escapeHTML(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+window.closeChatSSE = closeChatSSE;
 
 // Init
 switchView('view-instances');

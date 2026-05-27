@@ -93,6 +93,31 @@ Envia uma mensagem de texto simples através de uma instância configurada e con
 
 ---
 
+## 💬 Integração de Chat e Eventos em Tempo Real (SSE)
+
+Para construir seu próprio painel de chat externo ou integrar as conversas em tempo real no seu CRM/ERP, a API V1 fornece endpoints dedicados autenticados pela chave de API (`x-api-key` ou parâmetro `api_key` na query):
+
+*   **Listar Conversas (GET):** `/api/v1/instances/[NOME]/chats`
+*   **Histórico de Mensagens (GET):** `/api/v1/instances/[NOME]/chats/[CHAT_ID]/messages?limit=50`
+*   **Proxy de Avatar (GET):** `/api/v1/instances/[NOME]/chats/[CHAT_ID]/avatar`
+*   **Download de Mídias (GET):** `/api/v1/instances/[NOME]/messages/[MESSAGE_ID]/media?chatId=[CHAT_ID]`
+*   **Marcar como Lido (POST):** `/api/v1/instances/[NOME]/chats/[CHAT_ID]/seen`
+*   **Enviar Mídia (POST):** `/api/v1/instances/[NOME]/send-media`
+*   **Apagar/Revogar Mensagem (DELETE):** `/api/v1/instances/[NOME]/chats/[CHAT_ID]/messages/[MESSAGE_ID]`
+*   **Stream SSE Real-Time (GET):** `/api/v1/instances/[NOME]/chat-sse?api_key=[CHAVE]`
+
+### 💻 Cliente de Chat Demonstrativo Standalone
+
+Incluímos no projeto um exemplo prático completo e autossuficiente de um cliente de chat externo no arquivo [public/chat-demo.html](public/chat-demo.html).
+
+Para utilizá-lo:
+1. Acesse `http://localhost:3000/chat-demo.html` em seu navegador.
+2. Insira a URL da sua API, o ID da Instância e a sua Chave de API de Projeto.
+3. Clique em **Conectar** para abrir o chat externo integrado com atualizações em tempo real via SSE.
+4. Use este arquivo como modelo de referência (boilerplate) para construir a sua própria interface de chat externa.
+
+---
+
 ## ⚖️ Licença
 
 Este software é licenciado nos termos da **Licença de Atribuição Obrigatória**. Você é livre para copiar, modificar e utilizar comercialmente, desde que os créditos e a assinatura visual a **Marlon Souza** sejam estritamente conservados na barra lateral do painel e no topo dos códigos-fonte.
