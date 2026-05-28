@@ -73,7 +73,10 @@ async function createInstance(configData) {
         puppeteerOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
     }
 
-    const sessionFolder = path.join(__dirname, '.wwebjs_auth', `session-${instanceId}`);
+    // Sanitize instanceId for LocalAuth to prevent 'Invalid clientId' crashes
+    const safeClientId = String(instanceId).replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    const sessionFolder = path.join(__dirname, '.wwebjs_auth', `session-${safeClientId}`);
     const lockFiles = [
         path.join(sessionFolder, 'Default', 'LOCK'),
         path.join(sessionFolder, 'LOCK'),
@@ -90,9 +93,6 @@ async function createInstance(configData) {
             // Ignora se o arquivo não existir ou não puder ser apagado
         }
     }
-
-    // Sanitize instanceId for LocalAuth to prevent 'Invalid clientId' crashes
-    const safeClientId = String(instanceId).replace(/[^a-zA-Z0-9_-]/g, '_');
 
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: safeClientId }),
@@ -360,7 +360,8 @@ async function disconnectInstance(instanceId) {
     
     instances.delete(instanceId);
 
-    const folderPath = path.join(__dirname, '.wwebjs_auth', `session-${instanceId}`);
+    const safeClientId = String(instanceId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const folderPath = path.join(__dirname, '.wwebjs_auth', `session-${safeClientId}`);
     try {
         if (fs.existsSync(folderPath)) {
             const fsPromise = require('fs/promises');
