@@ -10,7 +10,7 @@ const express = require('express');
 const dotenv = require('dotenv');
 const routes = require('./routes');
 const { restoreSessions, destroyAllInstances } = require('./whatsappClient');
-const { startScheduler } = require('./scheduler');
+const { startScheduler } = require('./queue');
 
 dotenv.config();
 

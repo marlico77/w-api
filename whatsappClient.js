@@ -97,11 +97,7 @@ async function createInstance(configData) {
 
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: safeClientId }),
-        puppeteer: puppeteerOptions,
-        webVersionCache: {
-            type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
-        }
+        puppeteer: puppeteerOptions
     });
 
     instanceData.client = client;
@@ -135,6 +131,21 @@ async function createInstance(configData) {
         // Ao Receber
         const payload = { event: 'message_received', instance: instanceId, msg };
         fireWebhook(configData.wh_message_in, payload);
+
+        // Interceptador de Opt-out Automático
+        if (msg.body && typeof msg.body === 'string') {
+            const bodyUpper = msg.body.trim().toUpperCase();
+            if (['PARE', 'SAIR', 'STOP', 'CANCELAR', 'NÃO QUERO', 'DESCADASTRAR'].includes(bodyUpper)) {
+                try {
+                    const senderId = msg.author || msg.from;
+                    const numberOnly = senderId.split('@')[0];
+                    await db.optOutContact(instanceId, numberOnly);
+                    console.log(`[OPT-OUT] O contato ${numberOnly} solicitou descadastro da instância ${instanceId}. Fila será bloqueada para ele.`);
+                } catch(e) {
+                    console.error('[OPT-OUT] Erro ao processar opt-out:', e);
+                }
+            }
+        }
 
         // Propaga evento SSE de mensagem recebida com mapeamento robusto
         let senderName = null;

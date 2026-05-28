@@ -50,6 +50,9 @@ const initDb = async () => {
             UNIQUE(instance_id, number)
         )`);
 
+        await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS opt_in INTEGER DEFAULT 1`);
+        await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS opt_out INTEGER DEFAULT 0`);
+
         await pool.query(`CREATE TABLE IF NOT EXISTS campaigns (
             id SERIAL PRIMARY KEY,
             instance_id TEXT,
@@ -344,12 +347,23 @@ const changeUserPassword = async (username, newPassword) => {
     return true;
 };
 
+const optOutContact = async (instanceId, number) => {
+    await pool.query("UPDATE contacts SET opt_out = 1 WHERE instance_id = $1 AND number = $2", [instanceId, number]);
+};
+
+const getContactByNumber = async (instanceId, number) => {
+    const res = await pool.query("SELECT * FROM contacts WHERE instance_id = $1 AND number = $2", [instanceId, number]);
+    return res.rows[0] || null;
+};
+
 module.exports = {
     getInstances,
     saveInstance,
     deleteInstanceDb,
     saveContacts,
     getContacts,
+    optOutContact,
+    getContactByNumber,
     createCampaign,
     getCampaigns,
     getPendingCampaigns,
