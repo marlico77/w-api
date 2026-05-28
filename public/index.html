@@ -680,13 +680,32 @@ echo $response;</pre>
 
                             <hr style="border:0; border-top:1px solid var(--border); margin:30px 0;">
 
-                            <!-- Seção 2: Campanhas e Fila -->
-                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.15rem;"><i class="fa-solid fa-paper-plane" style="color:var(--orange);"></i> 2. Campanhas Automáticas e Regras Anti-Spam</h4>
-                            <p>O menu de <strong>Mensagens Automáticas</strong> permite programar disparos recorrentes ou únicos para toda a sua base de contatos sem riscos elevados de bloqueio.</p>
-                            <ul style="margin-left: 20px; margin-bottom: 15px; display:flex; flex-direction:column; gap:8px;">
-                                <li><strong>Sincronização Prévia:</strong> Antes de agendar uma campanha, acesse <em>Instâncias Web</em>, gerencie a instância desejada e clique em <em>Importar Contatos</em> para carregar a lista de contatos do seu celular para o banco de dados.</li>
-                                <li><strong>Proteção Anti-Spam (Fila Automática):</strong> O sistema enfileira os contatos e envia as mensagens de forma sequencial com um intervalo fixo de <strong>37 segundos</strong> entre cada envio. Isso simula o comportamento humano e protege seu chip contra banimentos rápidos por parte do WhatsApp.</li>
-                                <li><strong>Recorrência:</strong> Caso uma campanha seja agendada como recorrente, ela será processada até o fim e, automaticamente, a fila de contatos será reinicializada para a próxima data agendada baseada nos dias da semana e horários múltiplos escolhidos.</li>
+                            <!-- Seção 2: Campanhas e Regras Anti-Spam (Motor PostgreSQL) -->
+                            <h4 style="color:#fff; margin-bottom:10px; font-size:1.15rem;"><i class="fa-solid fa-shield-halved" style="color:var(--orange);"></i> 2. Fila Automática, Anti-Spam e Opt-Out</h4>
+                            <p>O módulo de <strong>Mensagens Automáticas</strong> utiliza um <em>Motor de Fila Nativo</em> operado diretamente pelo seu banco de dados PostgreSQL. Ele garante alta resiliência, tolerância a falhas e total obediência às políticas de envio do WhatsApp, prevenindo o banimento das suas instâncias.</p>
+                            
+                            <ul style="margin-left: 20px; margin-bottom: 25px; display:flex; flex-direction:column; gap:12px; color:var(--text-muted);">
+                                <li>
+                                    <strong style="color:#fff;"><i class="fa-solid fa-users"></i> 2.1. Sincronização Prévia</strong><br>
+                                    Antes de agendar qualquer disparo, você precisa ir no menu <em>Instâncias Web > Gerenciar</em> e clicar em <strong>Importar Contatos</strong>. O sistema copiará os seus chats recentes para o banco de dados e os qualificará como contatos aptos (<code>opt_in = 1</code>).
+                                </li>
+                                <li>
+                                    <strong style="color:#2ecc71;"><i class="fa-solid fa-hourglass-half"></i> 2.2. Throttling (Atraso Anti-Spam Nativo)</strong><br>
+                                    As campanhas não disparam mensagens simultâneas. O nosso Motor de Fila gerencia a carga e impõe um <strong>cooldown fixo de 25 segundos</strong> entre cada mensagem de uma mesma instância. Se você enviar para 1000 pessoas, o robô respeitará o limite de ~2 mensagens por minuto, mantendo a reputação do seu chip (Quality Rating) sempre verde no algoritmo da Meta.
+                                </li>
+                                <li>
+                                    <strong style="color:#e74c3c;"><i class="fa-solid fa-user-slash"></i> 2.3. Opt-out Automático (Descadastro Imediato)</strong><br>
+                                    Qualquer pessoa da sua base que responder à sua instância com as palavras <code style="color:#fff; background:rgba(255,255,255,0.1); padding:2px 5px; border-radius:4px;">PARE</code>, <code style="color:#fff; background:rgba(255,255,255,0.1); padding:2px 5px; border-radius:4px;">SAIR</code>, <code style="color:#fff; background:rgba(255,255,255,0.1); padding:2px 5px; border-radius:4px;">CANCELAR</code>, <code style="color:#fff; background:rgba(255,255,255,0.1); padding:2px 5px; border-radius:4px;">STOP</code> ou <code style="color:#fff; background:rgba(255,255,255,0.1); padding:2px 5px; border-radius:4px;">NÃO QUERO</code> terá sua flag de permissão automaticamente convertida para <code>opt_out = 1</code>.
+                                    <em>O motor de fila, ao puxar esse contato da tabela, recusará o envio na hora e cancelará a mensagem silenciosamente.</em>
+                                </li>
+                                <li>
+                                    <strong style="color:#f1c40f;"><i class="fa-solid fa-plug-circle-xmark"></i> 2.4. Circuit Breaker (Quarentena de Instância)</strong><br>
+                                    Se durante uma campanha a sua conexão cair bruscamente, o web-scraper sofrer falha ou a sua conta sofrer denúncias, o sistema detecta o erro "Session Closed" e entra no modo <em>Circuit Breaker</em>. A sua fila de disparos para aquela instância será <strong>congelada automaticamente por 10 minutos</strong>, impedindo que o sistema entre em loop infinito de tentativas falhas que resultariam em banimento definitivo pela Meta.
+                                </li>
+                                <li>
+                                    <strong style="color:#3498db;"><i class="fa-solid fa-rotate"></i> 2.5. Recorrência Inteligente</strong><br>
+                                    Uma vez agendada como "Recorrente", a campanha finalizará todos os envios. Em vez de simplesmente morrer, ela irá pesquisar na matriz de horários e dias da semana escolhidos por você para se auto-reagendar para o próximo horário disponível, zerando a fila de todos os contatos para um novo disparo de ciclo completo.
+                                </li>
                             </ul>
 
                             <hr style="border:0; border-top:1px solid var(--border); margin:30px 0;">
