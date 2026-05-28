@@ -73,22 +73,21 @@ async function createInstance(configData) {
         puppeteerOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
     }
 
-    // Limpar arquivos de trava (lock) antigos do Chromium/Puppeteer se existirem
     const sessionFolder = path.join(__dirname, '.wwebjs_auth', `session-${instanceId}`);
     const lockFiles = [
         path.join(sessionFolder, 'Default', 'LOCK'),
         path.join(sessionFolder, 'LOCK'),
         path.join(sessionFolder, 'SingletonLock'),
+        path.join(sessionFolder, 'SingletonCookie'),
+        path.join(sessionFolder, 'SingletonSocket'),
         path.join(sessionFolder, 'DevToolsActivePort')
     ];
     for (const file of lockFiles) {
         try {
-            if (fs.existsSync(file)) {
-                fs.unlinkSync(file);
-                console.log(`[${instanceId}] Limpeza preventiva: Arquivo de trava removido (${path.basename(file)})`);
-            }
+            fs.unlinkSync(file);
+            console.log(`[${instanceId}] Limpeza preventiva: Arquivo de trava removido (${path.basename(file)})`);
         } catch (e) {
-            // Ignora se o arquivo estiver bloqueado ou não puder ser apagado
+            // Ignora se o arquivo não existir ou não puder ser apagado
         }
     }
 
