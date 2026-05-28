@@ -92,8 +92,11 @@ async function createInstance(configData) {
         }
     }
 
+    // Sanitize instanceId for LocalAuth to prevent 'Invalid clientId' crashes
+    const safeClientId = String(instanceId).replace(/[^a-zA-Z0-9_-]/g, '_');
+
     const client = new Client({
-        authStrategy: new LocalAuth({ clientId: instanceId }),
+        authStrategy: new LocalAuth({ clientId: safeClientId }),
         puppeteer: puppeteerOptions,
         webVersionCache: {
             type: 'remote',
@@ -290,8 +293,12 @@ async function restoreSessions() {
         const rows = await db.getInstances();
         console.log(`[Sistema] Encontradas ${rows.length} instâncias no Banco de Dados.`);
         for (const row of rows) {
-            console.log(`[Sistema] Iniciando restauração: ${row.id}`);
-            await createInstance(row);
+            try {
+                console.log(`[Sistema] Iniciando restauração: ${row.id}`);
+                await createInstance(row);
+            } catch (instErr) {
+                console.error(`[Sistema] Erro ao restaurar instância ${row.id}:`, instErr);
+            }
         }
         console.log('✅ Tudo pronto!');
     } catch (error) {

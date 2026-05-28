@@ -910,11 +910,23 @@ formSettings.addEventListener('submit', async (e) => {
     };
 
     try {
-        await fetch(`${API_BASE}/api/instances`, {
+        const res = await fetch(`${API_BASE}/api/instances`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
+        
+        if (!res.ok) {
+            let errorMsg = 'Erro desconhecido';
+            try {
+                const errData = await res.json();
+                errorMsg = errData.error || errData.message || JSON.stringify(errData);
+            } catch (e) {
+                errorMsg = await res.text();
+            }
+            throw new Error(errorMsg);
+        }
+        
         switchView('view-instances');
     } catch (error) {
         alert('Erro ao salvar: ' + error.message);
