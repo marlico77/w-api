@@ -343,12 +343,19 @@ async function disconnectInstance(instanceId) {
 
     if (instance.client) {
         try {
-            await instance.client.logout();
+            console.log(`[${instanceId}] Encerrando cliente Puppeteer...`);
+            // Se o status for ERROR, o logout trava. Pulamos direto pro destroy.
+            if (instance.status !== 'ERROR') {
+                const logoutPromise = instance.client.logout();
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout no logout')), 5000));
+                await Promise.race([logoutPromise, timeoutPromise]);
+            }
         } catch (e) {
-            console.log(`[${instanceId}] Erro ao efetuar logout normal, forçando encerramento.`);
+            console.log(`[${instanceId}] Erro/Timeout no logout normal, forçando encerramento.`);
         }
         try {
             await instance.client.destroy();
+            console.log(`[${instanceId}] Cliente destruído com sucesso.`);
         } catch (e) {}
     }
     
@@ -357,13 +364,19 @@ async function disconnectInstance(instanceId) {
     const folderPath = path.join(__dirname, '.wwebjs_auth', `session-${instanceId}`);
     try {
         if (fs.existsSync(folderPath)) {
-            fs.rmSync(folderPath, { recursive: true, force: true });
+            const fsPromise = require('fs/promises');
+            // Tenta forçar a exclusão com retry em caso de lock temporário do Windows
+            await fsPromise.rm(folderPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 1000 });
+            console.log(`[${instanceId}] Pasta de sessão removida com sucesso.`);
         }
-    } catch (e) {}
+    } catch (e) {
+        console.warn(`[${instanceId}] Aviso: Não foi possível deletar a pasta de sessão:`, e.message);
+    }
 
     const rows = await db.getInstances();
     const row = rows.find(r => r.id === instanceId);
     if (row) {
+        console.log(`[${instanceId}] Reiniciando a instância...`);
         await createInstance(row);
     }
 
