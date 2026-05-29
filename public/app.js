@@ -46,6 +46,13 @@ navItems.forEach(item => {
 });
 
 function switchView(viewId) {
+    const userRole = localStorage.getItem('role');
+    if (viewId === 'view-users' && userRole !== 'ADMINISTRADOR') {
+        alert('Acesso negado. Apenas administradores podem acessar esta aba.');
+        switchView('view-instances');
+        return;
+    }
+
     views.forEach(v => v.classList.add('hidden'));
     document.getElementById(viewId).classList.remove('hidden');
     currentView = viewId;
@@ -78,6 +85,9 @@ function switchView(viewId) {
         } else if (viewId === 'view-form') {
             titleEl.textContent = 'Configurações de Instância';
             subtitleEl.textContent = 'Configurar dados e webhooks da instância';
+        } else if (viewId === 'view-users') {
+            titleEl.textContent = 'Gerenciar Usuários';
+            subtitleEl.textContent = 'Lista e alteração de privilégios de usuários do sistema';
         }
     }
     
@@ -91,6 +101,8 @@ function switchView(viewId) {
         pollInterval = setInterval(fetchInstanceData, 3000);
     } else if (viewId === 'view-chat') {
         initChatView();
+    } else if (viewId === 'view-users') {
+        fetchUsers();
     }
 }
 
@@ -1914,8 +1926,19 @@ function showAppScreen() {
     document.querySelector('.app-container').classList.remove('hidden');
     
     const username = localStorage.getItem('username') || 'ADMINISTRADOR';
+    const role = localStorage.getItem('role') || 'USUARIO';
     document.querySelector('.user-info strong').textContent = username;
     document.querySelector('.avatar').textContent = username.substring(0, 2).toUpperCase();
+    
+    // Controlar visibilidade da aba de usuários
+    const navUsers = document.getElementById('nav-users');
+    if (navUsers) {
+        if (role === 'ADMINISTRADOR') {
+            navUsers.classList.remove('hidden');
+        } else {
+            navUsers.classList.add('hidden');
+        }
+    }
     
     switchView('view-instances');
 }
@@ -1923,6 +1946,7 @@ function showAppScreen() {
 function logout() {
     localStorage.removeItem('token');
     localStorage.removeItem('username');
+    localStorage.removeItem('role');
     showLoginScreen();
 }
 
@@ -1936,6 +1960,8 @@ async function checkSession() {
     try {
         const res = await fetch(`${API_BASE}/api/auth/me`);
         if (res.ok) {
+            const data = await res.json();
+            localStorage.setItem('role', data.user.role);
             showAppScreen();
         } else {
             logout();
@@ -1965,6 +1991,7 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
         if (res.ok && data.success) {
             localStorage.setItem('token', data.token);
             localStorage.setItem('username', data.user.username);
+            localStorage.setItem('role', data.user.role);
             showAppScreen();
         } else {
             alert(data.error || 'Falha ao efetuar login.');
@@ -2012,5 +2039,322 @@ btnThemeDark.addEventListener('click', () => {
 
 window.closeChatSSE = closeChatSSE;
 
+// ==========================
+// REGISTRO DE USUÁRIOS
+// ==========================
+
+document.getElementById('link-show-register').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('login-box-wrapper').classList.add('hidden');
+    document.getElementById('register-box-wrapper').classList.remove('hidden');
+    
+    document.getElementById('form-register').reset();
+    document.getElementById('reg-google-id').value = '';
+    document.getElementById('reg-email').readOnly = false;
+    document.getElementById('reg-fullname').readOnly = false;
+    document.getElementById('reg-password-container').classList.remove('hidden');
+    document.getElementById('username-suggestions').textContent = '';
+    document.getElementById('register-title-text').textContent = 'Crie sua conta';
+    document.getElementById('register-subtitle-text').textContent = 'Insira seus dados para começar';
+});
+
+document.getElementById('link-show-login').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('register-box-wrapper').classList.add('hidden');
+    document.getElementById('login-box-wrapper').classList.remove('hidden');
+});
+
+let usernameCheckTimeout = null;
+document.getElementById('reg-username').addEventListener('input', (e) => {
+    clearTimeout(usernameCheckTimeout);
+    const username = e.target.value.trim().toLowerCase();
+    const sanitized = username.replace(/[^a-z0-9_-]/g, '');
+    if (sanitized !== e.target.value) {
+        e.target.value = sanitized;
+    }
+    
+    if (!sanitized) {
+        document.getElementById('username-suggestions').textContent = '';
+        return;
+    }
+    
+    usernameCheckTimeout = setTimeout(async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/auth/check-username?username=${encodeURIComponent(sanitized)}`);
+            const data = await res.json();
+            const indicator = document.getElementById('username-suggestions');
+            if (data.exists) {
+                const alt1 = sanitized + Math.floor(Math.random() * 900 + 100);
+                const alt2 = sanitized + '_' + Math.floor(Math.random() * 90 + 10);
+                indicator.innerHTML = `<span style="color:#ef4444;">Nome de usuário em uso.</span> Sugestões: <a href="#" onclick="applyUsernameSuggestion('${alt1}')" style="color:var(--primary); text-decoration:none; font-weight:600;">${alt1}</a> ou <a href="#" onclick="applyUsernameSuggestion('${alt2}')" style="color:var(--primary); text-decoration:none; font-weight:600;">${alt2}</a>`;
+            } else {
+                indicator.innerHTML = `<span style="color:#20c997;"><i class="fa-solid fa-check"></i> Nome de usuário disponível!</span>`;
+            }
+        } catch(err) {}
+    }, 400);
+});
+
+window.applyUsernameSuggestion = (suggestion) => {
+    const input = document.getElementById('reg-username');
+    input.value = suggestion;
+    const event = new Event('input', { bubbles: true });
+    input.dispatchEvent(event);
+};
+
+document.getElementById('form-register').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-register-submit');
+    
+    const fullName = document.getElementById('reg-fullname').value.trim();
+    const cpf = document.getElementById('reg-cpf').value.trim();
+    const address = document.getElementById('reg-address').value.trim();
+    const email = document.getElementById('reg-email').value.trim();
+    const username = document.getElementById('reg-username').value.trim().toLowerCase();
+    const password = document.getElementById('reg-password').value;
+    const googleId = document.getElementById('reg-google-id').value;
+    
+    if (!googleId && (!password || password.length < 6)) {
+        return alert('A senha deve conter no mínimo 6 caracteres.');
+    }
+    
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                fullName,
+                cpf,
+                address,
+                email,
+                username,
+                password: googleId ? null : password,
+                googleId: googleId || null
+            })
+        });
+        
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast('Sucesso', 'Conta criada com sucesso! Faça login para acessar o sistema.', 'success');
+            document.getElementById('register-box-wrapper').classList.add('hidden');
+            document.getElementById('login-box-wrapper').classList.remove('hidden');
+            
+            if (googleId && window.lastGoogleCredential) {
+                btn.disabled = false;
+                btn.textContent = 'Criar Conta';
+                loginWithGoogle(window.lastGoogleCredential);
+            }
+        } else {
+            alert(data.error || 'Erro ao realizar cadastro.');
+        }
+    } catch(err) {
+        alert('Erro ao tentar conectar ao servidor.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Criar Conta';
+    }
+});
+
+// ==========================
+// LOGIN GOOGLE
+// ==========================
+
+async function initGoogleLogin() {
+    try {
+        const res = await fetch(`${API_BASE}/api/auth/google-client-id`);
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        if (data.clientId) {
+            window.googleClientId = data.clientId;
+            
+            const checkGoogleSDK = setInterval(() => {
+                if (window.google && window.google.accounts) {
+                    clearInterval(checkGoogleSDK);
+                    
+                    google.accounts.id.initialize({
+                        client_id: window.googleClientId,
+                        callback: handleGoogleLoginResponse
+                    });
+                    
+                    google.accounts.id.renderButton(
+                        document.getElementById('google-signin-btn'),
+                        { theme: "outline", size: "large", width: 360 }
+                    );
+                }
+            }, 300);
+        } else {
+            const wrapper = document.getElementById('google-signin-btn-wrapper');
+            if (wrapper) wrapper.style.display = 'none';
+            const divider = wrapper.previousElementSibling;
+            if (divider) divider.style.display = 'none';
+        }
+    } catch (e) {
+        console.error('Erro ao inicializar Google Login SDK:', e);
+    }
+}
+
+async function handleGoogleLoginResponse(response) {
+    if (response && response.credential) {
+        window.lastGoogleCredential = response.credential;
+        await loginWithGoogle(response.credential);
+    }
+}
+
+async function loginWithGoogle(credentialToken) {
+    const btnWrapper = document.getElementById('google-signin-btn-wrapper');
+    const originalHTML = btnWrapper.innerHTML;
+    btnWrapper.innerHTML = '<span style="color:var(--text-muted); font-size:0.9rem;"><i class="fa-solid fa-spinner fa-spin"></i> Autenticando com o Google...</span>';
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/auth/google`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: credentialToken })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+            if (data.success) {
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('username', data.user.username);
+                localStorage.setItem('role', data.user.role);
+                showAppScreen();
+            } else if (data.requiresRegistration) {
+                document.getElementById('login-box-wrapper').classList.add('hidden');
+                document.getElementById('register-box-wrapper').classList.remove('hidden');
+                
+                document.getElementById('register-title-text').textContent = 'Complete seu cadastro';
+                document.getElementById('register-subtitle-text').textContent = 'Precisamos de mais algumas informações para criar sua conta.';
+                
+                document.getElementById('reg-fullname').value = data.googleData.name || '';
+                document.getElementById('reg-fullname').readOnly = true;
+                document.getElementById('reg-email').value = data.googleData.email || '';
+                document.getElementById('reg-email').readOnly = true;
+                document.getElementById('reg-google-id').value = data.googleData.googleId || '';
+                
+                document.getElementById('reg-password-container').classList.add('hidden');
+                document.getElementById('reg-password').value = '';
+                
+                let suggestedUsername = (data.googleData.email || '').split('@')[0].replace(/[^a-z0-9_-]/g, '').toLowerCase();
+                if (!suggestedUsername) {
+                    suggestedUsername = (data.googleData.name || 'user').replace(/[^a-z0-9_-]/g, '').toLowerCase();
+                }
+                
+                document.getElementById('reg-username').value = suggestedUsername;
+                const event = new Event('input', { bubbles: true });
+                document.getElementById('reg-username').dispatchEvent(event);
+                
+                showToast('Google conectado!', 'Preencha CPF, Endereço e confirme seu usuário.', 'info');
+            }
+        } else {
+            alert(data.error || 'Erro ao efetuar login com o Google.');
+        }
+    } catch (err) {
+        alert('Erro ao tentar conectar ao servidor para autenticar o Google.');
+    } finally {
+        btnWrapper.innerHTML = originalHTML;
+        if (window.google && window.google.accounts) {
+            google.accounts.id.renderButton(
+                document.getElementById('google-signin-btn'),
+                { theme: "outline", size: "large", width: 360 }
+            );
+        }
+    }
+}
+
+// ==========================
+// GESTÃO DE USUÁRIOS
+// ==========================
+
+async function fetchUsers() {
+    try {
+        const res = await fetch(`${API_BASE}/api/users`);
+        if (!res.ok) throw new Error('Falha ao buscar usuários.');
+        const users = await res.json();
+        
+        const tbody = document.getElementById('tbody-users');
+        tbody.innerHTML = '';
+        
+        users.forEach(u => {
+            const dateStr = u.created_at || '-';
+            const isSelf = u.username === localStorage.getItem('username');
+            const isAdminDefault = u.username === 'ADMINISTRADOR';
+            
+            let actionButtons = '';
+            if (!isAdminDefault && !isSelf) {
+                const nextRole = u.role === 'ADMINISTRADOR' ? 'USUARIO' : 'ADMINISTRADOR';
+                const labelRole = u.role === 'ADMINISTRADOR' ? 'Rebaixar para Usuário' : 'Promover a Admin';
+                const classRole = u.role === 'ADMINISTRADOR' ? 'solid-orange' : 'green';
+                
+                actionButtons = `
+                    <button class="btn-action ${classRole}" style="padding: 4px 8px; font-size: 0.75rem;" onclick="changeUserRole('${u.username}', '${nextRole}')">${labelRole}</button>
+                    <button class="btn-action red-outline" style="padding: 4px 8px; font-size: 0.75rem; margin-left: 5px;" onclick="deleteUser('${u.username}')"><i class="fa-solid fa-trash"></i> Excluir</button>
+                `;
+            } else {
+                actionButtons = `<span style="color:var(--text-muted); font-size:0.8rem; font-style:italic;">Sem ações</span>`;
+            }
+            
+            tbody.innerHTML += `
+                <tr>
+                    <td><strong>${escapeHTML(u.username)}</strong></td>
+                    <td>${escapeHTML(u.full_name || '-')}</td>
+                    <td>${escapeHTML(u.email || '-')}</td>
+                    <td>${escapeHTML(u.cpf || '-')}</td>
+                    <td>${escapeHTML(u.address || '-')}</td>
+                    <td><span class="badge" style="background:${u.role === 'ADMINISTRADOR' ? '#e74c3c' : '#3498db'}">${u.role}</span></td>
+                    <td>${dateStr}</td>
+                    <td>${actionButtons}</td>
+                </tr>
+            `;
+        });
+    } catch (e) {
+        console.error(e);
+        document.getElementById('tbody-users').innerHTML = `<tr><td colspan="8" style="color:#ef4444; text-align:center; padding:20px;">Erro ao carregar usuários: ${e.message}</td></tr>`;
+    }
+}
+
+window.changeUserRole = async (username, role) => {
+    if (!confirm(`Tem certeza que deseja alterar a função de ${username} para ${role}?`)) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/users/${username}/role`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role })
+        });
+        if (res.ok) {
+            showToast('Sucesso', `Função de ${username} atualizada para ${role}.`, 'success');
+            fetchUsers();
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Erro ao alterar função.');
+        }
+    } catch (e) {
+        alert('Erro ao conectar ao servidor.');
+    }
+};
+
+window.deleteUser = async (username) => {
+    if (!confirm(`Tem certeza que deseja excluir permanentemente o usuário ${username}? Esta ação não pode ser desfeita.`)) return;
+    try {
+        const res = await fetch(`${API_BASE}/api/users/${username}`, {
+            method: 'DELETE'
+        });
+        if (res.ok) {
+            showToast('Sucesso', `Usuário ${username} removido com sucesso.`, 'success');
+            fetchUsers();
+        } else {
+            const err = await res.json();
+            alert(err.error || 'Erro ao excluir usuário.');
+        }
+    } catch (e) {
+        alert('Erro ao conectar ao servidor.');
+    }
+};
+
 // Init
 checkSession();
+initGoogleLogin();

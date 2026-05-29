@@ -102,13 +102,32 @@ const initDb = async () => {
             created_at TEXT
         )`);
 
+        // Migrações de campos de usuário
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT`);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf TEXT`);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS address TEXT`);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE`);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'USUARIO'`);
+        await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE`);
+
+        // Migrações de relacionamentos / posse de recursos
+        await pool.query(`ALTER TABLE instances ADD COLUMN IF NOT EXISTS created_by TEXT`);
+        await pool.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS created_by TEXT`);
+
         const userCheck = await pool.query("SELECT COUNT(*) FROM users");
         if (parseInt(userCheck.rows[0].count, 10) === 0) {
             const adminPassHash = hashPassword('admin123');
             const nowStr = new Date().toLocaleString('pt-BR');
-            await pool.query("INSERT INTO users (username, password_hash, created_at) VALUES ($1, $2, $3)", ['ADMINISTRADOR', adminPassHash, nowStr]);
+            await pool.query("INSERT INTO users (username, password_hash, created_at, role) VALUES ($1, $2, $3, 'ADMINISTRADOR')", ['ADMINISTRADOR', adminPassHash, nowStr]);
             console.log('✅ Seeded default user ADMINISTRADOR with password admin123');
+        } else {
+            // Garante que o administrador padrão possui papel de ADMINISTRADOR
+            await pool.query(`UPDATE users SET role = 'ADMINISTRADOR' WHERE username = 'ADMINISTRADOR'`);
         }
+
+        // Atualização preventiva de recursos legados sem proprietário
+        await pool.query(`UPDATE instances SET created_by = 'ADMINISTRADOR' WHERE created_by IS NULL`);
+        await pool.query(`UPDATE projects SET created_by = 'ADMINISTRADOR' WHERE created_by IS NULL`);
 
         console.log('✅ PostgreSQL tables checked/created successfully');
     } catch (err) {
@@ -116,7 +135,7 @@ const initDb = async () => {
     }
 };
 
-initDb();
+const initPromise = initDb();
 
 const getInstances = async () => {
     const res = await pool.query("SELECT * FROM instances");
@@ -128,8 +147,9 @@ const saveInstance = async (data) => {
         INSERT INTO instances (
             id, token, "createdAt", 
             wh_message_in, wh_message_out, wh_connect, wh_disconnect, wh_status, wh_presence,
-            notify_own_msg, opt_reject_call, opt_read_msg, opt_read_status, opt_disable_queue
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            notify_own_msg, opt_reject_call, opt_read_msg, opt_read_status, opt_disable_queue,
+            created_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         ON CONFLICT (id) DO UPDATE SET
             token = EXCLUDED.token,
             "createdAt" = EXCLUDED."createdAt",
@@ -143,14 +163,16 @@ const saveInstance = async (data) => {
             opt_reject_call = EXCLUDED.opt_reject_call,
             opt_read_msg = EXCLUDED.opt_read_msg,
             opt_read_status = EXCLUDED.opt_read_status,
-            opt_disable_queue = EXCLUDED.opt_disable_queue
+            opt_disable_queue = EXCLUDED.opt_disable_queue,
+            created_by = EXCLUDED.created_by
     `;
     await pool.query(query, [
         data.id, data.token, data.createdAt,
         data.wh_message_in || '', data.wh_message_out || '', data.wh_connect || '', 
         data.wh_disconnect || '', data.wh_status || '', data.wh_presence || '',
         data.notify_own_msg ? 1 : 0, data.opt_reject_call ? 1 : 0, 
-        data.opt_read_msg ? 1 : 0, data.opt_read_status ? 1 : 0, data.opt_disable_queue ? 1 : 0
+        data.opt_read_msg ? 1 : 0, data.opt_read_status ? 1 : 0, data.opt_disable_queue ? 1 : 0,
+        data.created_by || 'ADMINISTRADOR'
     ]);
     return true;
 };
@@ -266,15 +288,29 @@ const editCampaign = async (campaignId, name, message, scheduledAt, recurrence, 
     }
 };
 
-const getCampaigns = async () => {
-    const query = `
-        SELECT c.*, 
-        CAST((SELECT COUNT(*) FROM campaign_queue WHERE campaign_id = c.id) AS INTEGER) as total_contacts,
-        CAST((SELECT COUNT(*) FROM campaign_queue WHERE campaign_id = c.id AND status = 'sent') AS INTEGER) as sent_contacts
-        FROM campaigns c ORDER BY c.id DESC
-    `;
-    const res = await pool.query(query);
-    return res.rows;
+const getCampaigns = async (username = null, role = null) => {
+    if (role === 'ADMINISTRADOR' || !username) {
+        const query = `
+            SELECT c.*, 
+            CAST((SELECT COUNT(*) FROM campaign_queue WHERE campaign_id = c.id) AS INTEGER) as total_contacts,
+            CAST((SELECT COUNT(*) FROM campaign_queue WHERE campaign_id = c.id AND status = 'sent') AS INTEGER) as sent_contacts
+            FROM campaigns c ORDER BY c.id DESC
+        `;
+        const res = await pool.query(query);
+        return res.rows;
+    } else {
+        const query = `
+            SELECT c.*, 
+            CAST((SELECT COUNT(*) FROM campaign_queue WHERE campaign_id = c.id) AS INTEGER) as total_contacts,
+            CAST((SELECT COUNT(*) FROM campaign_queue WHERE campaign_id = c.id AND status = 'sent') AS INTEGER) as sent_contacts
+            FROM campaigns c 
+            JOIN instances i ON c.instance_id = i.id
+            WHERE i.created_by = $1
+            ORDER BY c.id DESC
+        `;
+        const res = await pool.query(query, [username]);
+        return res.rows;
+    }
 };
 
 const getPendingCampaigns = async () => {
@@ -312,16 +348,21 @@ const getCampaignContacts = async (campaignId) => {
 // API & PROJETOS
 // ==========================
 
-const getProjects = async () => {
-    const res = await pool.query("SELECT * FROM projects ORDER BY id DESC");
-    return res.rows;
+const getProjects = async (username = null, role = null) => {
+    if (role === 'ADMINISTRADOR' || !username) {
+        const res = await pool.query("SELECT * FROM projects ORDER BY id DESC");
+        return res.rows;
+    } else {
+        const res = await pool.query("SELECT * FROM projects WHERE created_by = $1 ORDER BY id DESC", [username]);
+        return res.rows;
+    }
 };
 
-const createProject = async (name, website, apiKey, instanceId) => {
+const createProject = async (name, website, apiKey, instanceId, createdBy = 'ADMINISTRADOR') => {
     const createdAt = new Date().toLocaleString('pt-BR');
     const res = await pool.query(
-        "INSERT INTO projects (name, website, api_key, instance_id, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-        [name, website, apiKey, instanceId, createdAt]
+        "INSERT INTO projects (name, website, api_key, instance_id, created_at, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+        [name, website, apiKey, instanceId, createdAt, createdBy]
     );
     return res.rows[0].id;
 };
@@ -344,9 +385,9 @@ const validateApiKey = async (apiKey) => {
     return res.rows[0] || null;
 };
 
-const validateUser = async (username, password) => {
+const validateUser = async (loginIdentifier, password) => {
     const hash = hashPassword(password);
-    const res = await pool.query("SELECT * FROM users WHERE UPPER(username) = UPPER($1) AND password_hash = $2", [username, hash]);
+    const res = await pool.query("SELECT * FROM users WHERE (UPPER(username) = UPPER($1) OR UPPER(email) = UPPER($1)) AND password_hash = $2", [loginIdentifier, hash]);
     return res.rows[0] || null;
 };
 
@@ -402,7 +443,59 @@ const getProjectMetrics = async (projectId) => {
     };
 };
 
+const createUser = async (fullName, cpf, address, email, username, password, googleId = null, role = 'USUARIO') => {
+    const passwordHash = password ? hashPassword(password) : null;
+    const nowStr = new Date().toLocaleString('pt-BR');
+    const res = await pool.query(
+        `INSERT INTO users (username, password_hash, created_at, full_name, cpf, address, email, role, google_id) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING username`,
+        [username, passwordHash, nowStr, fullName, cpf, address, email, role, googleId]
+    );
+    return res.rows[0].username;
+};
+
+const getUsers = async () => {
+    const res = await pool.query("SELECT username, full_name, cpf, address, email, role, created_at FROM users ORDER BY username ASC");
+    return res.rows;
+};
+
+const updateUserRole = async (username, role) => {
+    await pool.query("UPDATE users SET role = $1 WHERE username = $2", [role, username]);
+    return true;
+};
+
+const deleteUser = async (username) => {
+    await pool.query("DELETE FROM users WHERE username = $1", [username]);
+    return true;
+};
+
+const checkUsernameExists = async (username) => {
+    const res = await pool.query("SELECT COUNT(*) FROM users WHERE UPPER(username) = UPPER($1)", [username]);
+    return parseInt(res.rows[0].count, 10) > 0;
+};
+
+const checkEmailExists = async (email) => {
+    const res = await pool.query("SELECT COUNT(*) FROM users WHERE UPPER(email) = UPPER($1)", [email]);
+    return parseInt(res.rows[0].count, 10) > 0;
+};
+
+const getUserByGoogleId = async (googleId) => {
+    const res = await pool.query("SELECT * FROM users WHERE google_id = $1", [googleId]);
+    return res.rows[0] || null;
+};
+
+const getUserByEmail = async (email) => {
+    const res = await pool.query("SELECT * FROM users WHERE UPPER(email) = UPPER($1)", [email]);
+    return res.rows[0] || null;
+};
+
+const linkGoogleId = async (username, googleId) => {
+    await pool.query("UPDATE users SET google_id = $1 WHERE username = $2", [googleId, username]);
+    return true;
+};
+
 module.exports = {
+    initPromise,
     getInstances,
     saveInstance,
     deleteInstanceDb,
@@ -428,5 +521,14 @@ module.exports = {
     validateUser,
     changeUserPassword,
     logApiRequest,
-    getProjectMetrics
+    getProjectMetrics,
+    createUser,
+    getUsers,
+    updateUserRole,
+    deleteUser,
+    checkUsernameExists,
+    checkEmailExists,
+    getUserByGoogleId,
+    getUserByEmail,
+    linkGoogleId
 };

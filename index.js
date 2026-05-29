@@ -21,9 +21,17 @@ app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ limit: '200mb', extended: true }));
 app.use(express.static('public'));
 app.use('/', routes);
+const db = require('./database');
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, async () => {
     console.log(`🚀 Servidor da API rodando na porta ${PORT}`);
+    
+    // Aguarda a inicialização e migração do Banco de Dados
+    try {
+        await db.initPromise;
+    } catch (e) {
+        console.error('❌ Falha na inicialização do Banco de Dados:', e);
+    }
     
     // Restaura as sessões antigas que já estavam salvas na máquina
     console.log('🔄 Restaurando sessões do WhatsApp...');
@@ -32,6 +40,7 @@ const server = app.listen(PORT, () => {
     // Inicia o motor de mensagens automáticas
     startScheduler();
 });
+
 
 // Função para desligamento limpo
 const handleShutdown = async (signal) => {

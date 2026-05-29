@@ -601,6 +601,7 @@ input:focus, textarea:focus {
     transition: opacity 0.2s;
 }
 .btn-action.green { background: var(--primary); }
+.btn-action.solid-orange { background: var(--orange); }
 .btn-action.red-outline { background: transparent; border: 1px solid #ef4444; color: #ef4444; }
 .btn-action:hover { opacity: 0.8; }
 

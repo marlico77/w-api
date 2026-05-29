@@ -16,8 +16,8 @@ const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 
-function generateToken(username) {
-    const payload = JSON.stringify({ username, expires: Date.now() + 24 * 60 * 60 * 1000 });
+function generateToken(username, role) {
+    const payload = JSON.stringify({ username, role, expires: Date.now() + 24 * 60 * 60 * 1000 });
     const signature = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('hex');
     return Buffer.from(payload).toString('base64') + '.' + signature;
 }
@@ -60,6 +60,18 @@ const authMiddleware = (req, res, next) => {
     next();
 };
 
+const checkInstanceOwnership = (req, res, next) => {
+    const id = req.params.id;
+    const instance = instances.get(id);
+    if (!instance) return res.status(404).json({ error: 'Instância não encontrada' });
+    
+    if (req.user && req.user.role !== 'ADMINISTRADOR' && instance.created_by !== req.user.username) {
+        return res.status(403).json({ error: 'Acesso negado. Você não tem permissão para acessar esta instância.' });
+    }
+    
+    next();
+};
+
 // Rota pública de login
 router.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
@@ -73,16 +85,102 @@ router.post('/api/auth/login', async (req, res) => {
             return res.status(401).json({ error: 'Usuário ou senha incorretos.' });
         }
         
-        const token = generateToken(user.username);
-        res.json({ success: true, token, user: { username: user.username } });
+        const token = generateToken(user.username, user.role);
+        res.json({ success: true, token, user: { username: user.username, role: user.role } });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
 
-// Rota protegida para validar token atual/carregar dados de login
+router.post('/api/auth/register', async (req, res) => {
+    const { fullName, cpf, address, email, username, password, googleId } = req.body;
+    
+    if (!fullName || !cpf || !address || !email || !username) {
+        return res.status(400).json({ error: 'Todos os campos obrigatórios devem ser informados.' });
+    }
+    
+    try {
+        const userExists = await db.checkUsernameExists(username);
+        if (userExists) {
+            return res.status(400).json({ error: 'Este nome de usuário já está em uso.' });
+        }
+        
+        const emailExists = await db.checkEmailExists(email);
+        if (emailExists) {
+            return res.status(400).json({ error: 'Este e-mail já está cadastrado.' });
+        }
+        
+        await db.createUser(fullName, cpf, address, email, username, password, googleId);
+        res.status(201).json({ success: true, message: 'Usuário cadastrado com sucesso.' });
+    } catch (e) {
+        res.status(500).json({ error: 'Erro ao cadastrar usuário', details: e.message });
+    }
+});
+
+router.get('/api/auth/check-username', async (req, res) => {
+    const { username } = req.query;
+    if (!username) return res.status(400).json({ error: 'username é obrigatório.' });
+    
+    try {
+        const exists = await db.checkUsernameExists(username);
+        res.json({ exists });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+router.post('/api/auth/google', async (req, res) => {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token do Google é obrigatório.' });
+    
+    try {
+        const response = await axios.get(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
+        const payload = response.data;
+        
+        const googleId = payload.sub;
+        const email = payload.email;
+        const name = payload.name;
+        
+        let user = await db.getUserByGoogleId(googleId);
+        if (!user && email) {
+            user = await db.getUserByEmail(email);
+            if (user) {
+                await db.linkGoogleId(user.username, googleId);
+                user.google_id = googleId;
+            }
+        }
+        
+        if (user) {
+            const jwtToken = generateToken(user.username, user.role);
+            return res.json({ 
+                success: true, 
+                token: jwtToken, 
+                user: { username: user.username, role: user.role } 
+            });
+        } else {
+            return res.json({
+                success: false,
+                requiresRegistration: true,
+                googleData: {
+                    googleId,
+                    email,
+                    name
+                }
+            });
+        }
+    } catch (error) {
+        console.error('[Google Auth Error]', error.message);
+        res.status(401).json({ error: 'Falha na autenticação com o Google.', details: error.message });
+    }
+});
+
+router.get('/api/auth/google-client-id', (req, res) => {
+    res.json({ clientId: process.env.GOOGLE_CLIENT_ID || null });
+});
+
+
 router.get('/api/auth/me', authMiddleware, (req, res) => {
-    res.json({ success: true, user: { username: req.user.username } });
+    res.json({ success: true, user: { username: req.user.username, role: req.user.role } });
 });
 
 // Middleware para proteger as outras rotas /api (mas não /api/v1)
@@ -93,6 +191,57 @@ router.use('/api', (req, res, next) => {
     authMiddleware(req, res, next);
 });
 
+// Middleware de autorização para administradores
+const adminMiddleware = (req, res, next) => {
+    if (!req.user || req.user.role !== 'ADMINISTRADOR') {
+        return res.status(403).json({ error: 'Acesso negado: Administradores apenas.' });
+    }
+    next();
+};
+
+// Rotas administrativas de gestão de usuários
+router.get('/api/users', adminMiddleware, async (req, res) => {
+    try {
+        const users = await db.getUsers();
+        res.json(users);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+router.put('/api/users/:username/role', adminMiddleware, async (req, res) => {
+    const { username } = req.params;
+    const { role } = req.body;
+    if (!role || !['ADMINISTRADOR', 'USUARIO'].includes(role)) {
+        return res.status(400).json({ error: 'Papel inválido. Escolha ADMINISTRADOR ou USUARIO.' });
+    }
+    if (username === 'ADMINISTRADOR') {
+        return res.status(400).json({ error: 'Não é possível alterar o cargo do administrador padrão.' });
+    }
+    try {
+        await db.updateUserRole(username, role);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+router.delete('/api/users/:username', adminMiddleware, async (req, res) => {
+    const { username } = req.params;
+    if (username === 'ADMINISTRADOR') {
+        return res.status(400).json({ error: 'Não é possível remover o administrador padrão.' });
+    }
+    if (username === req.user.username) {
+        return res.status(400).json({ error: 'Você não pode se excluir.' });
+    }
+    try {
+        await db.deleteUser(username);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ==========================
 // ROTAS DE GERENCIAMENTO (INSTÂNCIAS)
 // ==========================
@@ -101,12 +250,15 @@ router.use('/api', (req, res, next) => {
 router.get('/api/instances', (req, res) => {
     const list = [];
     for (const [id, data] of instances.entries()) {
-        list.push({
-            id: id,
-            status: data.status,
-            token: data.token,
-            createdAt: data.createdAt
-        });
+        if (req.user.role === 'ADMINISTRADOR' || data.created_by === req.user.username) {
+            list.push({
+                id: id,
+                status: data.status,
+                token: data.token,
+                createdAt: data.createdAt,
+                created_by: data.created_by
+            });
+        }
     }
     res.json(list);
 });
@@ -121,7 +273,11 @@ router.post('/api/instances', async (req, res) => {
         const existing = rows.find(r => r.id === configData.id);
         
         if (existing) {
+            if (req.user.role !== 'ADMINISTRADOR' && existing.created_by !== req.user.username) {
+                return res.status(403).json({ error: 'Você não tem permissão para editar esta instância.' });
+            }
             configData.createdAt = existing.createdAt;
+            configData.created_by = existing.created_by;
             if (!configData.token) configData.token = existing.token;
             
             await updateInstanceConfig(configData);
@@ -130,7 +286,8 @@ router.post('/api/instances', async (req, res) => {
             if (!configData.token) {
                 configData.token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
             }
-            configData.createdAt = new Date().toLocaleString('pt-BR'); // Agora com data e hora
+            configData.createdAt = new Date().toLocaleString('pt-BR');
+            configData.created_by = req.user.username;
             
             const data = await createInstance(configData);
             return res.json({ success: true, instance: { id: data.id, status: data.status, token: data.token } });
@@ -141,7 +298,7 @@ router.post('/api/instances', async (req, res) => {
 });
 
 // Deletar instância
-router.delete('/api/instances/:id', async (req, res) => {
+router.delete('/api/instances/:id', checkInstanceOwnership, async (req, res) => {
     const success = await deleteInstance(req.params.id);
     if (success) {
         res.json({ success: true });
@@ -154,7 +311,7 @@ router.delete('/api/instances/:id', async (req, res) => {
 // ROTAS DO PAINEL WEB (DASHBOARD DA INSTÂNCIA)
 // ==========================
 
-router.get('/api/instances/:id/status', (req, res) => {
+router.get('/api/instances/:id/status', checkInstanceOwnership, (req, res) => {
     const instance = instances.get(req.params.id);
     if (!instance) return res.status(404).json({ error: 'Not found' });
 
@@ -164,7 +321,7 @@ router.get('/api/instances/:id/status', (req, res) => {
     });
 });
 
-router.get('/api/instances/:id/config', async (req, res) => {
+router.get('/api/instances/:id/config', checkInstanceOwnership, async (req, res) => {
     try {
         const rows = await db.getInstances();
         const config = rows.find(r => r.id === req.params.id);
@@ -175,13 +332,13 @@ router.get('/api/instances/:id/config', async (req, res) => {
     }
 });
 
-router.get('/api/instances/:id/messages', (req, res) => {
+router.get('/api/instances/:id/messages', checkInstanceOwnership, (req, res) => {
     const instance = instances.get(req.params.id);
     if (!instance) return res.status(404).json({ error: 'Not found' });
     res.json(instance.messages);
 });
 
-router.post('/api/instances/:id/disconnect', async (req, res) => {
+router.post('/api/instances/:id/disconnect', checkInstanceOwnership, async (req, res) => {
     try {
         const success = await disconnectInstance(req.params.id);
         if (!success) return res.status(404).json({ error: 'Instância não encontrada' });
@@ -197,8 +354,14 @@ router.post('/api/instances/:id/disconnect', async (req, res) => {
 
 // Middleware para verificar se a instância está conectada
 const checkInstanceReady = (req, res, next) => {
-    const instance = instances.get(req.params.id);
+    const id = req.params.id || req.body.instanceId;
+    const instance = instances.get(id);
     if (!instance) return res.status(404).json({ error: 'Instância não encontrada' });
+    
+    // Bloqueia acesso a instâncias de terceiros para usuários não-administradores em requisições do painel
+    if (req.user && req.user.role !== 'ADMINISTRADOR' && instance.created_by !== req.user.username) {
+        return res.status(403).json({ error: 'Acesso negado. Você não é dono desta instância.' });
+    }
     
     // Lógica da Configuração Geral (Desabilitar Enfileiramento)
     if (instance.opt_disable_queue && instance.status !== 'CONNECTED') {
@@ -400,6 +563,13 @@ router.post('/api/campaigns', async (req, res) => {
         return res.status(400).json({ error: 'Dados incompletos' });
     }
     
+    // Verifica posse da instância
+    const instance = instances.get(instanceId);
+    if (!instance) return res.status(404).json({ error: 'Instância não encontrada' });
+    if (req.user.role !== 'ADMINISTRADOR' && instance.created_by !== req.user.username) {
+        return res.status(403).json({ error: 'Acesso negado. Você não é o proprietário desta instância.' });
+    }
+    
     try {
         const campaignId = await db.createCampaign(instanceId, name, message, scheduledAt, contacts, recurrence);
         res.json({ success: true, campaignId });
@@ -418,6 +588,10 @@ router.put('/api/campaigns/:id', async (req, res) => {
     }
     
     try {
+        const campaigns = await db.getCampaigns(req.user.username, req.user.role);
+        const campaign = campaigns.find(c => String(c.id) === String(campaignId));
+        if (!campaign) return res.status(403).json({ error: 'Acesso negado ou campanha não encontrada.' });
+        
         await db.editCampaign(campaignId, name, message, scheduledAt, recurrence, contacts);
         res.json({ success: true });
     } catch (e) {
@@ -428,6 +602,10 @@ router.put('/api/campaigns/:id', async (req, res) => {
 // Obter contatos de uma campanha específica
 router.get('/api/campaigns/:id/contacts', async (req, res) => {
     try {
+        const campaigns = await db.getCampaigns(req.user.username, req.user.role);
+        const campaign = campaigns.find(c => String(c.id) === String(req.params.id));
+        if (!campaign) return res.status(403).json({ error: 'Acesso negado ou campanha não encontrada.' });
+
         const contacts = await db.getCampaignContacts(req.params.id);
         res.json(contacts);
     } catch (e) {
@@ -438,7 +616,7 @@ router.get('/api/campaigns/:id/contacts', async (req, res) => {
 // Listar Campanhas
 router.get('/api/campaigns', async (req, res) => {
     try {
-        const rows = await db.getCampaigns();
+        const rows = await db.getCampaigns(req.user.username, req.user.role);
         const campaigns = rows.map(r => {
             let parsedDays = [];
             let parsedTimes = [];
@@ -462,7 +640,7 @@ router.get('/api/campaigns', async (req, res) => {
 
 router.get('/api/projects', async (req, res) => {
     try {
-        const projects = await db.getProjects();
+        const projects = await db.getProjects(req.user.username, req.user.role);
         res.json(projects);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -474,10 +652,17 @@ router.post('/api/projects', async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Nome do projeto é obrigatório' });
     if (!instanceId) return res.status(400).json({ error: 'Instância é obrigatória' });
     
+    // Verifica posse da instância
+    const instance = instances.get(instanceId);
+    if (!instance) return res.status(404).json({ error: 'Instância não encontrada' });
+    if (req.user.role !== 'ADMINISTRADOR' && instance.created_by !== req.user.username) {
+        return res.status(403).json({ error: 'Acesso negado. Você não possui permissão para esta instância.' });
+    }
+
     try {
         const crypto = require('crypto');
         const apiKey = 'sk-live-' + crypto.randomBytes(24).toString('hex');
-        const id = await db.createProject(name, website || '', apiKey, instanceId);
+        const id = await db.createProject(name, website || '', apiKey, instanceId, req.user.username);
         res.json({ success: true, project: { id, name, website, api_key: apiKey, instance_id: instanceId } });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -486,6 +671,10 @@ router.post('/api/projects', async (req, res) => {
 
 router.delete('/api/projects/:id', async (req, res) => {
     try {
+        const projects = await db.getProjects(req.user.username, req.user.role);
+        const project = projects.find(p => String(p.id) === String(req.params.id));
+        if (!project) return res.status(403).json({ error: 'Acesso negado ou projeto não encontrado.' });
+        
         await db.deleteProject(req.params.id);
         res.json({ success: true });
     } catch (e) {
@@ -499,6 +688,16 @@ router.put('/api/projects/:id', async (req, res) => {
     if (!instanceId) return res.status(400).json({ error: 'Instância é obrigatória' });
     
     try {
+        const projects = await db.getProjects(req.user.username, req.user.role);
+        const project = projects.find(p => String(p.id) === String(req.params.id));
+        if (!project) return res.status(403).json({ error: 'Acesso negado ou projeto não encontrado.' });
+        
+        const instance = instances.get(instanceId);
+        if (!instance) return res.status(404).json({ error: 'Instância não encontrada' });
+        if (req.user.role !== 'ADMINISTRADOR' && instance.created_by !== req.user.username) {
+            return res.status(403).json({ error: 'Acesso negado. Você não possui permissão para esta instância.' });
+        }
+
         await db.updateProject(req.params.id, name, website || '', instanceId);
         res.json({ success: true });
     } catch (e) {
@@ -508,6 +707,10 @@ router.put('/api/projects/:id', async (req, res) => {
 
 router.get('/api/projects/:id/metrics', async (req, res) => {
     try {
+        const projects = await db.getProjects(req.user.username, req.user.role);
+        const project = projects.find(p => String(p.id) === String(req.params.id));
+        if (!project) return res.status(403).json({ error: 'Acesso negado ou projeto não encontrado.' });
+
         const metrics = await db.getProjectMetrics(req.params.id);
         res.json({ success: true, metrics });
     } catch (e) {

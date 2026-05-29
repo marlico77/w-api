@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
     <!-- Toast Notifications -->
@@ -31,6 +32,7 @@
                 <div class="menu-label mt-4">SISTEMA</div>
                 <a href="#" class="nav-item" data-target="view-projects"><i class="fa-solid fa-code"></i> Projetos (API)</a>
                 <a href="#" class="nav-item" data-target="view-documentation"><i class="fa-solid fa-book"></i> Documentação</a>
+                <a href="#" class="nav-item hidden" id="nav-users" data-target="view-users"><i class="fa-solid fa-users"></i> Gerenciar Usuários</a>
                 <a href="#" class="nav-item"><i class="fa-solid fa-gear"></i> Configurações</a>
             </nav>
             <div style="margin-top:auto; padding:20px; font-size:0.75rem; color:var(--text-muted); border-top:1px solid var(--border); text-align:center;">
@@ -734,6 +736,34 @@ echo $response;</pre>
                     </div>
                 </div>
 
+                <!-- VIEW: GERENCIAMENTO DE USUÁRIOS -->
+                <div id="view-users" class="view-section hidden">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3>Gestão de Usuários Cadastrados</h3>
+                        </div>
+                        <div class="table-container mt-4">
+                            <table class="instances-table">
+                                <thead>
+                                    <tr>
+                                        <th>Usuário</th>
+                                        <th>Nome Completo</th>
+                                        <th>E-mail</th>
+                                        <th>CPF</th>
+                                        <th>Endereço</th>
+                                        <th>Função</th>
+                                        <th>Criado em</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbody-users">
+                                    <!-- Populated via JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
             </main>
         </div>
     </div>
@@ -1023,7 +1053,7 @@ echo $response;</pre>
                 </div>
             </div>
             
-            <div class="login-box">
+            <div class="login-box" id="login-box-wrapper">
                 <div class="login-logo">
                     <span class="logo-accent">S</span>-api
                 </div>
@@ -1053,6 +1083,87 @@ echo $response;</pre>
                     </div>
                     
                     <button type="submit" class="btn-login" id="btn-login-submit">Entrar</button>
+
+                    <div style="margin: 15px 0; text-align: center; color: var(--text-muted); font-size: 0.85rem; position: relative;">
+                        <span style="background: var(--bg-main); padding: 0 10px; position: relative; z-index: 2;">OU</span>
+                        <div style="position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: var(--border); z-index: 1;"></div>
+                    </div>
+                    
+                    <div style="display:flex; justify-content:center; width:100%; margin-bottom: 15px;" id="google-signin-btn-wrapper">
+                        <div id="google-signin-btn"></div>
+                    </div>
+
+                    <div style="margin-top: 15px; text-align: center; font-size: 0.88rem;">
+                        Ainda não tem uma conta? <a href="#" id="link-show-register" style="color:var(--primary); text-decoration:none; font-weight:600;">Cadastre-se</a>
+                    </div>
+                </form>
+            </div>
+
+            <!-- SEÇÃO DE CADASTRO -->
+            <div class="login-box hidden" id="register-box-wrapper">
+                <div class="login-logo">
+                    <span class="logo-accent">S</span>-api
+                </div>
+                <h2 id="register-title-text">Crie sua conta</h2>
+                <p class="subtitle" id="register-subtitle-text">Insira seus dados para começar</p>
+                
+                <form id="form-register">
+                    <input type="hidden" id="reg-google-id">
+                    
+                    <div class="form-group-login">
+                        <label for="reg-fullname">Nome Completo</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon"><i class="fa-solid fa-user"></i></span>
+                            <input type="text" id="reg-fullname" placeholder="Nome Completo" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group-login mt-3">
+                        <label for="reg-cpf">CPF</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon"><i class="fa-solid fa-address-card"></i></span>
+                            <input type="text" id="reg-cpf" placeholder="000.000.000-00" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group-login mt-3">
+                        <label for="reg-address">Endereço Completo</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon"><i class="fa-solid fa-location-dot"></i></span>
+                            <input type="text" id="reg-address" placeholder="Rua, Número, Bairro, Cidade-UF" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group-login mt-3">
+                        <label for="reg-email">E-mail</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon"><i class="fa-solid fa-envelope"></i></span>
+                            <input type="email" id="reg-email" placeholder="email@exemplo.com" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group-login mt-3">
+                        <label for="reg-username">Nome de Usuário (Username)</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon"><i class="fa-solid fa-at"></i></span>
+                            <input type="text" id="reg-username" placeholder="usuario_unico" required>
+                        </div>
+                        <small id="username-suggestions" style="color:var(--text-muted); font-size:0.75rem; margin-top:2px; display:block;"></small>
+                    </div>
+
+                    <div class="form-group-login mt-3" id="reg-password-container">
+                        <label for="reg-password">Senha de acesso</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon"><i class="fa-solid fa-key"></i></span>
+                            <input type="password" id="reg-password" placeholder="Mínimo 6 caracteres">
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn-login" id="btn-register-submit">Criar Conta</button>
+                    
+                    <div style="margin-top: 15px; text-align: center; font-size: 0.88rem;">
+                        Já tem uma conta? <a href="#" id="link-show-login" style="color:var(--primary); text-decoration:none; font-weight:600;">Faça Login</a>
+                    </div>
                 </form>
             </div>
         </div>
