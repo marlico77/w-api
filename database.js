@@ -1,5 +1,5 @@
 /**
- * ZAP API - Conexão e Queries do Banco de Dados (PostgreSQL/Supabase)
+ * SAPI API - Conexão e Queries do Banco de Dados (PostgreSQL/Supabase)
  * Desenvolvido por: Marlon Souza
  * Licença: Atribuição Obrigatória (Manter Créditos)
  * 
@@ -86,6 +86,15 @@ const initDb = async () => {
         )`);
 
         await pool.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS instance_id TEXT`);
+
+        await pool.query(`CREATE TABLE IF NOT EXISTS api_logs (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+            endpoint TEXT,
+            method TEXT,
+            status_code INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
 
         await pool.query(`CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -356,6 +365,43 @@ const getContactByNumber = async (instanceId, number) => {
     return res.rows[0] || null;
 };
 
+const logApiRequest = async (projectId, endpoint, method, statusCode) => {
+    try {
+        await pool.query(
+            "INSERT INTO api_logs (project_id, endpoint, method, status_code) VALUES ($1, $2, $3, $4)",
+            [projectId, endpoint, method, statusCode]
+        );
+    } catch (e) {
+        console.error("Erro ao salvar log de API:", e);
+    }
+};
+
+const getProjectMetrics = async (projectId) => {
+    const res = await pool.query(`
+        SELECT 
+            TO_CHAR(created_at, 'YYYY-MM-DD') as date,
+            COUNT(*) as total,
+            SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as errors
+        FROM api_logs
+        WHERE project_id = $1 AND created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD')
+        ORDER BY TO_CHAR(created_at, 'YYYY-MM-DD') ASC
+    `, [projectId]);
+    
+    const endpointsRes = await pool.query(`
+        SELECT endpoint, COUNT(*) as count 
+        FROM api_logs 
+        WHERE project_id = $1 AND created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY endpoint 
+        ORDER BY count DESC LIMIT 5
+    `, [projectId]);
+
+    return {
+        daily: res.rows,
+        endpoints: endpointsRes.rows
+    };
+};
+
 module.exports = {
     getInstances,
     saveInstance,
@@ -380,5 +426,7 @@ module.exports = {
     updateProject,
     validateApiKey,
     validateUser,
-    changeUserPassword
+    changeUserPassword,
+    logApiRequest,
+    getProjectMetrics
 };

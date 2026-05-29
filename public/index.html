@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZAP API Dashboard</title>
+    <title>SAPI API Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
@@ -17,7 +17,7 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="logo">
-                <span class="logo-text">Z-api</span>
+                <span class="logo-text">S-api</span>
                 <span class="logo-badge">Local</span>
             </div>
             
@@ -61,7 +61,7 @@
             <!-- Content -->
             <main class="content">
                 
-                <!-- VIEW: INSTÂNCIAS (Tabela idêntica ao Z-API) -->
+                <!-- VIEW: INSTÂNCIAS (Tabela idêntica ao S-API) -->
                 <div id="view-instances" class="view-section">
                     
                     <div class="stats-grid-3">
@@ -524,7 +524,7 @@
                             
                             <!-- Introdução -->
                             <div style="margin-bottom: 30px;">
-                                <p style="font-size: 1.1rem; color: #fff; font-weight: 500;">Bem-vindo à Documentação Oficial da ZAP API!</p>
+                                <p style="font-size: 1.1rem; color: #fff; font-weight: 500;">Bem-vindo à Documentação Oficial da SAPI API!</p>
                                 <p>Este sistema é uma solução completa para automação de mensagens, gerenciamento de contatos e conexão multidevice com o WhatsApp Web. Siga as orientações abaixo para integrar a API com sistemas externos e gerenciar o fluxo de disparo.</p>
                             </div>
 
@@ -613,7 +613,7 @@
                             <h5 style="color:#fff; font-size:0.95rem;">Estrutura do Corpo da Requisição (JSON Payload)</h5>
                             <pre style="background:var(--bg-main); border:1px solid var(--border); padding:15px; border-radius:6px; overflow-x:auto; margin-top:10px; color:#fff; font-family: monospace; font-size:0.85rem;">{
   "number": "5511999999999", // Número completo: DDI + DDD + Telefone (apenas dígitos)
-  "message": "Olá! Esta é uma notificação automática enviada via ZAP API."
+  "message": "Olá! Esta é uma notificação automática enviada via SAPI API."
 }</pre>
 
                             <!-- Snippets em Múltiplas Linguagens -->
@@ -961,6 +961,55 @@ echo $response;</pre>
         </div>
     </div>
 
+    <!-- MODAL: MÉTRICAS DO PROJETO -->
+    <div id="modal-metrics" class="modal hidden">
+        <div class="modal-content" style="max-width: 700px; background:var(--bg-main); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8);">
+            <div class="modal-header" style="background: rgba(0,0,0,0.2);">
+                <h2><i class="fa-solid fa-chart-line" style="color: var(--primary);"></i> Métricas da API: <span id="metrics-project-name"></span></h2>
+                <button class="btn-close" onclick="closeModal('modal-metrics')"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <div style="display:flex; gap:15px; margin-bottom:20px;">
+                    <div class="stat-card solid-green" style="flex:1; text-align:center;">
+                        <h4 style="font-size:0.85rem; font-weight:normal; margin-bottom:5px;">Requisições (30 dias)</h4>
+                        <h2 id="metric-total-reqs" style="font-size:1.8rem;">0</h2>
+                    </div>
+                    <div class="stat-card solid-orange" style="flex:1; text-align:center;">
+                        <h4 style="font-size:0.85rem; font-weight:normal; margin-bottom:5px;">Erros (4xx / 5xx)</h4>
+                        <h2 id="metric-total-errors" style="font-size:1.8rem;">0</h2>
+                    </div>
+                    <div class="stat-card" style="flex:1; text-align:center; background: rgba(52, 152, 219, 0.1); border: 1px solid rgba(52, 152, 219, 0.2);">
+                        <h4 style="font-size:0.85rem; font-weight:normal; color:#3498db; margin-bottom:5px;">Taxa de Sucesso</h4>
+                        <h2 id="metric-success-rate" style="font-size:1.8rem; color:#3498db;">100%</h2>
+                    </div>
+                </div>
+
+                <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 6px; border: 1px solid var(--border);">
+                    <canvas id="metricsChart" height="100"></canvas>
+                </div>
+
+                <div style="margin-top: 20px;">
+                    <h4 style="font-size:0.9rem; margin-bottom:10px; color:var(--text-muted);">Endpoints Mais Acessados</h4>
+                    <div class="table-container">
+                        <table class="instances-table">
+                            <thead>
+                                <tr>
+                                    <th>Endpoint</th>
+                                    <th>Requisições</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbody-metrics-endpoints">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer mt-4" style="display: flex; justify-content: flex-end;">
+                <button type="button" class="btn-cancel" onclick="closeModal('modal-metrics')">Fechar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- SEÇÃO DE LOGIN -->
     <div id="login-container" class="login-wrapper">
         <div class="login-left">
@@ -976,7 +1025,7 @@ echo $response;</pre>
             
             <div class="login-box">
                 <div class="login-logo">
-                    <span class="logo-accent">Z</span>-api
+                    <span class="logo-accent">S</span>-api
                 </div>
                 <h2>Entre na sua conta</h2>
                 <p class="subtitle">Entre com seus dados de acesso</p>
@@ -1011,7 +1060,7 @@ echo $response;</pre>
             <div class="illustration-content">
                 <h3>O que você pode desenvolver?</h3>
                 <div class="illustration-img">
-                    <img src="login_illustration.png" alt="Desenvolvimento com Z-API">
+                    <img src="login_illustration.png" alt="Desenvolvimento com S-API">
                 </div>
                 <ul class="features-list">
                     <li><i class="fa-solid fa-circle-check"></i> Criar bots de atendimento</li>
@@ -1023,6 +1072,7 @@ echo $response;</pre>
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

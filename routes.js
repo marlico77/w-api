@@ -1,5 +1,5 @@
 /**
- * ZAP API - Rotas e Controladores da API
+ * SAPI API - Rotas e Controladores da API
  * Desenvolvido por: Marlon Souza
  * Licença: Atribuição Obrigatória (Manter Créditos)
  * 
@@ -7,7 +7,7 @@
  */
 
 const express = require('express');
-const { instances, createInstance, updateInstanceConfig, deleteInstance, disconnectInstance, clientEvents, addMessageLog, MessageMedia } = require('./whatsappClient');
+const { instances, createInstance, updateInstanceConfig, deleteInstance, disconnectInstance, clientEvents, addMessageLog, MessageMedia, getMentionsMetadata } = require('./whatsappClient');
 const axios = require('axios');
 const db = require('./database');
 const crypto = require('crypto');
@@ -506,6 +506,15 @@ router.put('/api/projects/:id', async (req, res) => {
     }
 });
 
+router.get('/api/projects/:id/metrics', async (req, res) => {
+    try {
+        const metrics = await db.getProjectMetrics(req.params.id);
+        res.json({ success: true, metrics });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 const apiKeyMiddleware = async (req, res, next) => {
     const apiKey = req.headers['x-api-key'] || req.query.api_key || req.headers['authorization']?.replace('Bearer ', '');
     if (!apiKey) return res.status(401).json({ error: 'Chave de API não fornecida (Header: x-api-key ou Query: api_key)' });
@@ -518,6 +527,11 @@ const apiKeyMiddleware = async (req, res, next) => {
             return res.status(403).json({ error: `Esta chave de API não tem permissão para a instância '${req.params.id}'` });
         }
         
+        // Registrar log de acesso da API ao finalizar a resposta
+        res.on('finish', () => {
+            db.logApiRequest(project.id, req.path, req.method, res.statusCode);
+        });
+
         next();
     } catch (e) {
         res.status(500).json({ error: 'Erro ao validar chave' });
@@ -898,10 +912,9 @@ router.get('/api/instances/:id/chats/:chatId/messages', checkInstanceReady, asyn
         const limit = parseInt(req.query.limit) || 50;
         const messages = await chat.fetchMessages({ limit });
         
-        const mapped = [];
         const contactCache = {}; // Cache local para evitar requisições repetidas ao Puppeteer
 
-        for (const msg of messages) {
+        const mappedPromises = messages.map(async (msg) => {
             const senderId = msg.author || msg.from;
             let name = null;
             
@@ -925,7 +938,17 @@ router.get('/api/instances/:id/chats/:chatId/messages', checkInstanceReady, asyn
                 }
             }
 
-            mapped.push({
+            // Resolve mentions
+            let mentions = {};
+            if (msg.mentionedIds && msg.mentionedIds.length > 0) {
+                try {
+                    mentions = await getMentionsMetadata(req.waInstance.client, msg.mentionedIds);
+                } catch (e) {
+                    console.error('[History mentions error]', e);
+                }
+            }
+
+            return {
                 id: msg.id.id,
                 body: msg.body,
                 type: msg.type,
@@ -935,9 +958,12 @@ router.get('/api/instances/:id/chats/:chatId/messages', checkInstanceReady, asyn
                 sender: senderId,
                 hasMedia: msg.hasMedia,
                 mimetype: msg._data?.mimetype || msg.mimetype || (msg.type === 'image' ? 'image/jpeg' : msg.type === 'video' ? 'video/mp4' : msg.type === 'audio' || msg.type === 'ptt' ? 'audio/ogg' : 'application/octet-stream'),
-                size: msg._data?.size || 0
-            });
-        }
+                size: msg._data?.size || 0,
+                mentions: mentions
+            };
+        });
+
+        const mapped = await Promise.all(mappedPromises);
 
         res.json(mapped);
     } catch (error) {

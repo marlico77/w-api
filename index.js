@@ -1,5 +1,5 @@
 /**
- * ZAP API - Sistema de Automação de Mensagens do WhatsApp
+ * SAPI API - Sistema de Automação de Mensagens do WhatsApp
  * Desenvolvido por: Marlon Souza
  * Licença: Atribuição Obrigatória (Manter Créditos)
  * 

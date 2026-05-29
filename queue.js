@@ -1,5 +1,5 @@
 /**
- * ZAP API - Motor de Fila Nativa em PostgreSQL
+ * SAPI API - Motor de Fila Nativa em PostgreSQL
  * Substitui a dependência do Redis por um loop seguro no banco de dados com Rate Limit nativo.
  */
 

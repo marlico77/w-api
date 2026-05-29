@@ -616,6 +616,7 @@ window.fetchProjects = async () => {
                     </td>
                     <td>${p.created_at}</td>
                     <td>
+                        <button class="btn-action" style="padding: 5px 10px; background: rgba(52, 152, 219, 0.2); color: #3498db; border: none; border-radius: 4px; margin-right: 5px;" onclick="openMetricsModal(${p.id}, '${p.name}')" title="Ver Métricas"><i class="fa-solid fa-chart-line"></i></button>
                         <button class="btn-action" style="padding: 5px 10px; background: rgba(32, 201, 151, 0.2); color: var(--primary); border: none; border-radius: 4px;" onclick="openEditProjectModal(${p.id})" title="Editar"><i class="fa-solid fa-pen-to-square"></i></button>
                     </td>
                 </tr>
@@ -773,6 +774,115 @@ window.copyToClipboard = (text) => {
     }).catch(err => {
         alert('Erro ao copiar: ' + err);
     });
+};
+
+let metricsChartInstance = null;
+window.openMetricsModal = async (projectId, projectName) => {
+    document.getElementById('metrics-project-name').innerText = projectName;
+    document.getElementById('modal-metrics').classList.remove('hidden');
+    
+    // Reset indicators
+    document.getElementById('metric-total-reqs').innerText = '...';
+    document.getElementById('metric-total-errors').innerText = '...';
+    document.getElementById('metric-success-rate').innerText = '...';
+    document.getElementById('tbody-metrics-endpoints').innerHTML = '<tr><td colspan="2">Carregando...</td></tr>';
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/projects/${projectId}/metrics`);
+        const data = await res.json();
+        
+        if (!data.success) throw new Error(data.error);
+        
+        const { daily, endpoints } = data.metrics;
+        
+        let totalReqs = 0;
+        let totalErrors = 0;
+        
+        const labels = [];
+        const successData = [];
+        const errorData = [];
+        
+        daily.forEach(d => {
+            labels.push(d.date);
+            const total = parseInt(d.total) || 0;
+            const errors = parseInt(d.errors) || 0;
+            const success = total - errors;
+            
+            totalReqs += total;
+            totalErrors += errors;
+            
+            successData.push(success);
+            errorData.push(errors);
+        });
+        
+        // Update cards
+        document.getElementById('metric-total-reqs').innerText = totalReqs;
+        document.getElementById('metric-total-errors').innerText = totalErrors;
+        
+        const successRate = totalReqs > 0 ? (((totalReqs - totalErrors) / totalReqs) * 100).toFixed(1) : 100;
+        const rateColor = successRate < 90 ? '#e74c3c' : (successRate < 98 ? '#f39c12' : '#3498db');
+        document.getElementById('metric-success-rate').innerText = `${successRate}%`;
+        document.getElementById('metric-success-rate').style.color = rateColor;
+        
+        // Render Chart
+        const ctx = document.getElementById('metricsChart').getContext('2d');
+        if (metricsChartInstance) metricsChartInstance.destroy();
+        
+        metricsChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Sucesso',
+                        data: successData,
+                        borderColor: '#2ecc71',
+                        backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3
+                    },
+                    {
+                        label: 'Erros (4xx/5xx)',
+                        data: errorData,
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#fff' } } },
+                scales: {
+                    x: { ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                    y: { ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.05)' }, beginAtZero: true }
+                }
+            }
+        });
+        
+        // Render Endpoints
+        const tbody = document.getElementById('tbody-metrics-endpoints');
+        tbody.innerHTML = '';
+        if (endpoints.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="2">Nenhum acesso registrado.</td></tr>';
+        } else {
+            endpoints.forEach(ep => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td><code>${ep.endpoint}</code></td>
+                        <td><span class="badge" style="background:var(--primary);">${ep.count}</span></td>
+                    </tr>
+                `;
+            });
+        }
+        
+    } catch (e) {
+        alert("Erro ao carregar métricas: " + e.message);
+    }
 };
 
 // Update fetch instances poll and campaigns poll
@@ -1499,7 +1609,7 @@ function appendMessageBubble(msg) {
     }
     
     if (msg.body && (!msg.hasMedia || msg.mimetype?.startsWith('audio/')) && !(msg.size && msg.size > 150 * 1024 * 1024)) {
-        htmlContent += `<p>${escapeHTML(msg.body).replace(/\n/g, '<br>')}</p>`;
+        htmlContent += `<p>${formatMessageBody(msg)}</p>`;
     }
     
     htmlContent += `<span class="msg-time">${timeStr}</span>`;
@@ -1739,6 +1849,30 @@ function escapeHTML(str) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function formatMessageBody(msg) {
+    if (!msg.body) return '';
+    let bodyHtml = escapeHTML(msg.body);
+    
+    if (msg.mentions && Object.keys(msg.mentions).length > 0) {
+        for (const [userId, contactInfo] of Object.entries(msg.mentions)) {
+            let displayName = userId;
+            if (contactInfo.name) {
+                displayName = contactInfo.name;
+            } else if (contactInfo.pushname) {
+                displayName = contactInfo.pushname;
+            } else if (contactInfo.number) {
+                displayName = formatWhatsAppNumber(contactInfo.number);
+            }
+            
+            const titleTooltip = contactInfo.number ? formatWhatsAppNumber(contactInfo.number) : userId;
+            const regex = new RegExp(`@${userId}\\b`, 'g');
+            bodyHtml = bodyHtml.replace(regex, `<span class="mention-tag" title="${escapeHTML(titleTooltip)}">@${escapeHTML(displayName)}</span>`);
+        }
+    }
+    
+    return bodyHtml.replace(/\n/g, '<br>');
 }
 
 // Auth helpers and listeners

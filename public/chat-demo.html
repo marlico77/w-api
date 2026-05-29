@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZAP API - Demo Chat Externo</title>
+    <title>SAPI API - Demo Chat Externo</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -822,6 +822,23 @@
             from { opacity: 0; transform: translateY(5px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        /* Tags de menção no chat */
+        .mention-tag {
+            background-color: rgba(32, 201, 151, 0.15);
+            color: var(--primary);
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-block;
+            cursor: help;
+            transition: all 0.2s ease;
+            user-select: all;
+        }
+
+        .mention-tag:hover {
+            background-color: rgba(32, 201, 151, 0.3);
+        }
     </style>
 </head>
 <body>
@@ -1285,14 +1302,14 @@
                     contentMarkup = `
                         <div class="message-content">
                             <img src="${mediaUrl}" class="media-image" onclick="window.open('${mediaUrl}', '_blank')">
-                            ${msg.body ? `<div style="margin-top: 5px;">${msg.body}</div>` : ''}
+                            ${msg.body ? `<div style="margin-top: 5px;">${formatMessageBody(msg)}</div>` : ''}
                         </div>
                     `;
                 } else if (msg.type === 'video') {
                     contentMarkup = `
                         <div class="message-content">
                             <video src="${mediaUrl}" controls class="media-video"></video>
-                            ${msg.body ? `<div style="margin-top: 5px;">${msg.body}</div>` : ''}
+                            ${msg.body ? `<div style="margin-top: 5px;">${formatMessageBody(msg)}</div>` : ''}
                         </div>
                     `;
                 } else if (msg.type === 'audio' || msg.type === 'ptt') {
@@ -1319,7 +1336,7 @@
                 }
             } else {
                 // Mensagem de texto simples
-                contentMarkup = `<div class="message-content">${formatText(msg.body || '')}</div>`;
+                contentMarkup = `<div class="message-content">${formatMessageBody(msg)}</div>`;
             }
 
             bubble.innerHTML = `
@@ -1349,6 +1366,48 @@
                 .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
                 .replace(/_(.*?)_/g, '<em>$1</em>')
                 .replace(/~(.*?)~/g, '<del>$1</del>');
+        }
+
+        function formatWhatsAppNumber(numberStr) {
+            if (!numberStr) return '';
+            const num = String(numberStr).replace(/\D/g, '');
+            if (num.length > 15) return num; 
+            if (num.length === 13 && num.startsWith('55')) {
+                return `+${num.substring(0,2)} ${num.substring(2,4)} ${num.substring(4,9)}-${num.substring(9)}`;
+            }
+            if (num.length === 12 && num.startsWith('55')) {
+                return `+${num.substring(0,2)} ${num.substring(2,4)} ${num.substring(4,8)}-${num.substring(8)}`;
+            }
+            if (num.length === 11 && num.startsWith('1')) {
+                return `+${num.substring(0,1)} ${num.substring(1,4)} ${num.substring(4,7)}-${num.substring(7)}`;
+            }
+            return `+${num}`;
+        }
+
+        function formatMessageBody(msg) {
+            if (!msg.body) return '';
+            
+            // Format WhatsApp bold, italic, strikethrough markdown
+            let bodyHtml = formatText(msg.body);
+            
+            if (msg.mentions && Object.keys(msg.mentions).length > 0) {
+                for (const [userId, contactInfo] of Object.entries(msg.mentions)) {
+                    let displayName = userId;
+                    if (contactInfo.name) {
+                        displayName = contactInfo.name;
+                    } else if (contactInfo.pushname) {
+                        displayName = contactInfo.pushname;
+                    } else if (contactInfo.number) {
+                        displayName = formatWhatsAppNumber(contactInfo.number);
+                    }
+                    
+                    const titleTooltip = contactInfo.number ? formatWhatsAppNumber(contactInfo.number) : userId;
+                    const regex = new RegExp(`@${userId}\\b`, 'g');
+                    bodyHtml = bodyHtml.replace(regex, `<span class="mention-tag" title="${escapeHTML(titleTooltip)}">@${escapeHTML(displayName)}</span>`);
+                }
+            }
+            
+            return bodyHtml;
         }
 
         // Scroll para o fim das mensagens

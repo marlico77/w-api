@@ -1,6 +1,6 @@
-# ZAP API - Sistema de Automação de Mensagens do WhatsApp
+# SAPI API - Sistema de Automação de Mensagens do WhatsApp
 
-O **ZAP API** é um sistema completo e de alto desempenho para gestão de múltiplas conexões de WhatsApp (Multi-device) e agendamento automático de mensagens com proteção anti-spam. O projeto conta com um painel administrativo completo e uma API protegida por chaves de acesso dinâmicas.
+O **SAPI API** é um sistema completo e de alto desempenho para gestão de múltiplas conexões de WhatsApp (Multi-device) e agendamento automático de mensagens com proteção anti-spam. O projeto conta com um painel administrativo completo e uma API protegida por chaves de acesso dinâmicas.
 
 Desenvolvido originalmente por **Marlon Souza**. Este projeto pode ser livremente copiado, modificado e distribuído, contanto que os créditos e as assinaturas do autor sejam estritamente mantidos tanto no código quanto na interface visual (conforme detalhado no arquivo `LICENSE`).
 

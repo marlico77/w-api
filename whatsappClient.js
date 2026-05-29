@@ -1,5 +1,5 @@
 /**
- * ZAP API - Integração e Gerenciamento do WhatsApp Web (Puppeteer/WWebJS)
+ * SAPI API - Integração e Gerenciamento do WhatsApp Web (Puppeteer/WWebJS)
  * Desenvolvido por: Marlon Souza
  * Licença: Atribuição Obrigatória (Manter Créditos)
  * 
@@ -125,7 +125,7 @@ async function createInstance(configData) {
         clientEvents.emit('disconnected', { instanceId, reason });
     });
 
-    // Lógica Avançada (Z-API Features)
+    // Lógica Avançada (S-API Features)
     client.on('message', async (msg) => {
         // Ao Receber
         const payload = { event: 'message_received', instance: instanceId, msg };
@@ -156,6 +156,15 @@ async function createInstance(configData) {
             senderName = msg._data?.notifyName || msg._data?.pushname || senderId.split('@')[0];
         }
 
+        let mentions = {};
+        if (msg.mentionedIds && msg.mentionedIds.length > 0) {
+            try {
+                mentions = await getMentionsMetadata(client, msg.mentionedIds);
+            } catch (e) {
+                console.error('[SSE message mentions error]', e);
+            }
+        }
+
         clientEvents.emit('message', {
             instanceId,
             msg: {
@@ -170,7 +179,8 @@ async function createInstance(configData) {
                 senderName: senderName,
                 hasMedia: msg.hasMedia,
                 mimetype: msg._data?.mimetype || msg.mimetype || (msg.type === 'image' ? 'image/jpeg' : msg.type === 'video' ? 'video/mp4' : msg.type === 'audio' || msg.type === 'ptt' ? 'audio/ogg' : 'application/octet-stream'),
-                size: msg._data?.size || 0
+                size: msg._data?.size || 0,
+                mentions: mentions
             }
         });
 
@@ -197,6 +207,15 @@ async function createInstance(configData) {
             senderName = msg._data?.notifyName || msg._data?.pushname || senderId.split('@')[0];
         }
 
+        let mentions = {};
+        if (msg.mentionedIds && msg.mentionedIds.length > 0) {
+            try {
+                mentions = await getMentionsMetadata(client, msg.mentionedIds);
+            } catch (e) {
+                console.error('[SSE message_create mentions error]', e);
+            }
+        }
+
         clientEvents.emit('message', {
             instanceId,
             msg: {
@@ -211,7 +230,8 @@ async function createInstance(configData) {
                 senderName: senderName,
                 hasMedia: msg.hasMedia,
                 mimetype: msg._data?.mimetype || msg.mimetype || (msg.type === 'image' ? 'image/jpeg' : msg.type === 'video' ? 'video/mp4' : msg.type === 'audio' || msg.type === 'ptt' ? 'audio/ogg' : 'application/octet-stream'),
-                size: msg._data?.size || 0
+                size: msg._data?.size || 0,
+                mentions: mentions
             }
         });
 
@@ -406,6 +426,42 @@ async function destroyAllInstances() {
     instances.clear();
 }
 
+async function getMentionsMetadata(client, mentionedIds) {
+    const mentions = {};
+    if (!mentionedIds || !Array.isArray(mentionedIds) || mentionedIds.length === 0) {
+        return mentions;
+    }
+    
+    for (const jid of mentionedIds) {
+        try {
+            const userPart = jid.split('@')[0];
+            const contact = await client.getContactById(jid);
+            if (contact) {
+                mentions[userPart] = {
+                    name: contact.name || null,
+                    pushname: contact.pushname || null,
+                    number: contact.number || null
+                };
+            } else {
+                mentions[userPart] = {
+                    name: null,
+                    pushname: null,
+                    number: null
+                };
+            }
+        } catch (e) {
+            console.error(`[Mentions Resolver Error] For JID ${jid}:`, e.message);
+            const userPart = jid.split('@')[0];
+            mentions[userPart] = {
+                name: null,
+                pushname: null,
+                number: null
+            };
+        }
+    }
+    return mentions;
+}
+
 module.exports = {
     instances,
     createInstance,
@@ -416,5 +472,6 @@ module.exports = {
     destroyAllInstances,
     clientEvents,
     addMessageLog,
-    MessageMedia
+    MessageMedia,
+    getMentionsMetadata
 };
