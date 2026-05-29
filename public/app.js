@@ -1233,6 +1233,18 @@ const elChatActiveAvatar = document.getElementById('chat-active-avatar');
 const elChatActiveName = document.getElementById('chat-active-name');
 const elChatActiveDetails = document.getElementById('chat-active-details');
 
+const elChatDetailsSidebar = document.getElementById('chat-details-sidebar');
+const elBtnCloseDetails = document.getElementById('btn-close-details');
+const elChatDetailsAvatar = document.getElementById('chat-details-avatar');
+const elChatDetailsName = document.getElementById('chat-details-name');
+const elChatDetailsStatus = document.getElementById('chat-details-status');
+const elChatDetailsDescription = document.getElementById('chat-details-description');
+const elChatDetailsMembersSection = document.getElementById('chat-details-members-section');
+const elChatDetailsMembersCount = document.getElementById('chat-details-members-count');
+const elChatDetailsMembersList = document.getElementById('chat-details-members-list');
+const elChatDetailsSubgroupsSection = document.getElementById('chat-details-subgroups-section');
+const elChatDetailsSubgroupsList = document.getElementById('chat-details-subgroups-list');
+
 const elChatTextInput = document.getElementById('chat-text-input');
 const elBtnSendChat = document.getElementById('btn-send-chat');
 const elBtnAttach = document.getElementById('btn-attach');
@@ -1480,7 +1492,7 @@ function renderChatsList() {
             : '';
 
         div.innerHTML = `
-            <div class="chat-avatar-img" style="background-image: url('${API_BASE}/api/instances/${activeInstanceId}/chats/${chat.id}/avatar')"></div>
+            <div class="chat-avatar-img" style="background-image: url('${API_BASE}/api/instances/${activeInstanceId}/chats/${chat.id}/avatar?token=${encodeURIComponent(localStorage.getItem('token') || '')}')"></div>
             <div class="chat-info">
                 <div class="chat-meta">
                     <span class="chat-name">${escapeHTML(chat.name)}</span>
@@ -1513,7 +1525,7 @@ async function selectChat(chat) {
     
     elChatActiveName.textContent = chat.name;
     elChatActiveDetails.textContent = chat.isGroup ? 'Grupo do WhatsApp' : chat.id.split('@')[0];
-    elChatActiveAvatar.style.backgroundImage = `url('${API_BASE}/api/instances/${activeInstanceId}/chats/${chat.id}/avatar')`;
+    elChatActiveAvatar.style.backgroundImage = `url('${API_BASE}/api/instances/${activeInstanceId}/chats/${chat.id}/avatar?token=${encodeURIComponent(localStorage.getItem('token') || '')}')`;
 
     fetch(`${API_BASE}/api/instances/${activeInstanceId}/chats/${chat.id}/seen`, { method: 'POST' });
 
@@ -1535,6 +1547,10 @@ async function selectChat(chat) {
     } catch (error) {
         console.error("Erro ao carregar mensagens:", error);
         elChatMessagesContainer.innerHTML = '<p style="text-align:center; color:#ef4444; padding:20px;">Erro ao carregar histórico de mensagens.</p>';
+    }
+    
+    if (elChatDetailsSidebar && !elChatDetailsSidebar.classList.contains('hidden')) {
+        fetchAndRenderChatDetails();
     }
 }
 
@@ -1851,6 +1867,115 @@ document.getElementById('btn-chat-back').addEventListener('click', () => {
     elChatMainContainer.classList.remove('chat-selected');
     renderChatsList();
 });
+
+// Abrir/Fechar painel de detalhes ao clicar no cabeçalho do chat
+document.querySelector('.chat-window-header .chat-contact-info').addEventListener('click', () => {
+    if (activeChatId) {
+        toggleChatDetails();
+    }
+});
+
+// Fechar painel de detalhes
+elBtnCloseDetails.addEventListener('click', () => {
+    elChatDetailsSidebar.classList.add('hidden');
+});
+
+async function toggleChatDetails() {
+    if (elChatDetailsSidebar.classList.contains('hidden')) {
+        elChatDetailsSidebar.classList.remove('hidden');
+        await fetchAndRenderChatDetails();
+    } else {
+        elChatDetailsSidebar.classList.add('hidden');
+    }
+}
+
+async function fetchAndRenderChatDetails() {
+    if (!activeChatId) return;
+    
+    // Indicador de carregamento
+    elChatDetailsName.textContent = 'Carregando...';
+    elChatDetailsStatus.textContent = '';
+    elChatDetailsDescription.textContent = 'Buscando informações...';
+    elChatDetailsMembersSection.classList.add('hidden');
+    elChatDetailsSubgroupsSection.classList.add('hidden');
+    elChatDetailsAvatar.style.backgroundImage = '';
+    
+    try {
+        const res = await fetch(`${API_BASE}/api/instances/${activeInstanceId}/chats/${activeChatId}/details`);
+        if (!res.ok) throw new Error('Erro ao carregar detalhes');
+        const data = await res.json();
+        
+        elChatDetailsName.textContent = data.name;
+        elChatDetailsStatus.textContent = data.isGroup ? 'Grupo do WhatsApp' : `+${data.id.split('@')[0]}`;
+        elChatDetailsDescription.textContent = data.description || (data.isGroup ? 'Sem descrição do grupo.' : 'Sem recado.');
+        
+        // Avatar
+        elChatDetailsAvatar.style.backgroundImage = `url('${API_BASE}/api/instances/${activeInstanceId}/chats/${data.id}/avatar?token=${encodeURIComponent(localStorage.getItem('token') || '')}')`;
+        
+        // Se for grupo
+        if (data.isGroup) {
+            elChatDetailsMembersCount.textContent = data.participants.length;
+            elChatDetailsMembersList.innerHTML = '';
+            
+            data.participants.forEach(p => {
+                const item = document.createElement('div');
+                item.className = 'member-item';
+                
+                const adminBadge = (p.isAdmin || p.isSuperAdmin) ? '<span class="member-badge">Admin</span>' : '';
+                
+                item.innerHTML = `
+                    <div class="member-avatar" style="background-image: url('${API_BASE}/api/instances/${activeInstanceId}/chats/${p.id}/avatar?token=${encodeURIComponent(localStorage.getItem('token') || '')}')"></div>
+                    <div class="member-info">
+                        <span class="member-name">${escapeHTML(p.name)}</span>
+                        <span class="member-phone">+${p.number}</span>
+                    </div>
+                    ${adminBadge}
+                `;
+                elChatDetailsMembersList.appendChild(item);
+            });
+            elChatDetailsMembersSection.classList.remove('hidden');
+        } else {
+            elChatDetailsMembersSection.classList.add('hidden');
+        }
+        
+        // Subgrupos (Comunidades)
+        if (data.linkedSubgroups && data.linkedSubgroups.length > 0) {
+            elChatDetailsSubgroupsList.innerHTML = '';
+            data.linkedSubgroups.forEach(sg => {
+                const item = document.createElement('div');
+                item.className = 'subgroup-item';
+                
+                const unreadBadge = sg.unreadCount > 0 ? `<span class="chat-unread-badge">${sg.unreadCount}</span>` : '';
+                
+                item.innerHTML = `
+                    <div class="subgroup-avatar" style="background-image: url('${API_BASE}/api/instances/${activeInstanceId}/chats/${sg.id}/avatar?token=${encodeURIComponent(localStorage.getItem('token') || '')}')"></div>
+                    <div class="subgroup-info">
+                        <span class="subgroup-name">${escapeHTML(sg.name)}</span>
+                    </div>
+                    ${unreadBadge}
+                `;
+                
+                item.addEventListener('click', () => {
+                    const matchedChat = chatList.find(c => isSameJID(c.id, sg.id));
+                    if (matchedChat) {
+                        selectChat(matchedChat);
+                    } else {
+                        selectChat({ id: sg.id, name: sg.name, isGroup: true, unreadCount: 0 });
+                    }
+                });
+                
+                elChatDetailsSubgroupsList.appendChild(item);
+            });
+            elChatDetailsSubgroupsSection.classList.remove('hidden');
+        } else {
+            elChatDetailsSubgroupsSection.classList.add('hidden');
+        }
+    } catch (e) {
+        console.error(e);
+        elChatDetailsName.textContent = 'Erro';
+        elChatDetailsDescription.textContent = 'Não foi possível carregar os detalhes do chat.';
+    }
+}
 
 // Helper de escape
 function escapeHTML(str) {

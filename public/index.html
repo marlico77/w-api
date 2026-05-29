@@ -293,6 +293,40 @@
                                 </div>
                             </div>
                         </div>
+                        
+                        <!-- Painel de Detalhes do Chat (Direita) -->
+                        <div id="chat-details-sidebar" class="chat-details-sidebar hidden">
+                            <div class="chat-details-header">
+                                <h3>Informações</h3>
+                                <button id="btn-close-details" class="btn-icon" title="Fechar"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div class="chat-details-content">
+                                <div class="chat-details-avatar-section">
+                                    <div id="chat-details-avatar" class="chat-details-avatar-img"></div>
+                                    <h2 id="chat-details-name">Nome do Contato</h2>
+                                    <p id="chat-details-status" class="text-muted">Telefone / Tipo</p>
+                                </div>
+                                <hr class="details-divider">
+                                <div class="chat-details-section">
+                                    <h4 class="details-section-title">Recado / Descrição</h4>
+                                    <p id="chat-details-description" class="details-description-text">Nenhuma descrição disponível.</p>
+                                </div>
+                                <div id="chat-details-members-section" class="chat-details-section hidden">
+                                    <hr class="details-divider">
+                                    <h4 class="details-section-title">Participantes (<span id="chat-details-members-count">0</span>)</h4>
+                                    <div id="chat-details-members-list" class="chat-details-members-list">
+                                        <!-- Members injected via JS -->
+                                    </div>
+                                </div>
+                                <div id="chat-details-subgroups-section" class="chat-details-section hidden">
+                                    <hr class="details-divider">
+                                    <h4 class="details-section-title">Subgrupos da Comunidade</h4>
+                                    <div id="chat-details-subgroups-list" class="chat-details-subgroups-list">
+                                        <!-- Subgroups injected via JS -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

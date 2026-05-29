@@ -1216,6 +1216,101 @@ router.get('/api/instances/:id/chats/:chatId/avatar', checkInstanceReady, async 
     }
 });
 
+// Obter detalhes de uma conversa específica (descrição, participantes, comunidade)
+router.get('/api/instances/:id/chats/:chatId/details', checkInstanceReady, async (req, res) => {
+    try {
+        const chat = await req.waInstance.client.getChatById(req.params.chatId);
+        
+        let details = {
+            id: chat.id._serialized,
+            name: chat.name,
+            isGroup: chat.isGroup,
+            unreadCount: chat.unreadCount,
+            timestamp: chat.timestamp,
+            description: chat.description || '',
+            participants: [],
+            linkedSubgroups: [],
+            parentGroupId: null
+        };
+        
+        if (chat.isGroup) {
+            // Obter participantes do grupo
+            const participants = chat.participants || [];
+            const mappedParticipants = await Promise.all(participants.map(async (p) => {
+                let name = p.id.user;
+                try {
+                    const contact = await req.waInstance.client.getContactById(p.id._serialized);
+                    name = contact.name || contact.pushname || contact.verifiedName || p.id.user;
+                } catch (e) {}
+                return {
+                    id: p.id._serialized,
+                    number: p.id.user,
+                    name: name,
+                    isAdmin: p.isAdmin,
+                    isSuperAdmin: p.isSuperAdmin
+                };
+            }));
+            details.participants = mappedParticipants;
+
+            // Obter comunidades/subgrupos se existirem
+            const communityData = await req.waInstance.client.pupPage.evaluate(async (groupId) => {
+                const groupWid = window.require('WAWebWidFactory').createWid(groupId);
+                const chatModel = window.require('WAWebCollections').Chat.get(groupWid);
+                if (chatModel && chatModel.groupMetadata) {
+                    const isParent = chatModel.groupMetadata.isParentGroup || false;
+                    const linked = chatModel.groupMetadata.linkedSubgroups;
+                    let list = [];
+                    if (linked && typeof linked.toArray === 'function') {
+                        list = linked.toArray().map(wid => wid.serialize ? wid.serialize() : wid._serialized || wid);
+                    } else if (Array.isArray(linked)) {
+                        list = linked.map(wid => wid._serialized || wid);
+                    }
+                    const parentId = chatModel.groupMetadata.parentGroupId;
+                    const parentIdStr = parentId ? (parentId.serialize ? parentId.serialize() : parentId._serialized || parentId) : null;
+                    
+                    return { 
+                        isParentGroup: isParent, 
+                        linkedSubgroups: list,
+                        parentGroupId: parentIdStr
+                    };
+                }
+                return null;
+            }, chat.id._serialized);
+
+            if (communityData) {
+                details.parentGroupId = communityData.parentGroupId;
+                if (communityData.linkedSubgroups && communityData.linkedSubgroups.length > 0) {
+                    const subgroupsList = await Promise.all(communityData.linkedSubgroups.map(async (sgId) => {
+                        try {
+                            const sgChat = await req.waInstance.client.getChatById(sgId);
+                            return {
+                                id: sgId,
+                                name: sgChat.name || sgId.split('@')[0],
+                                unreadCount: sgChat.unreadCount || 0
+                            };
+                        } catch (e) {
+                            return { id: sgId, name: sgId.split('@')[0], unreadCount: 0 };
+                        }
+                    }));
+                    details.linkedSubgroups = subgroupsList;
+                }
+            }
+        } else {
+            // Contato privado - obter descrição/status de recado do contato
+            try {
+                const contact = await req.waInstance.client.getContactById(chat.id._serialized);
+                details.description = await contact.getAbout() || '';
+            } catch (e) {}
+        }
+        
+        res.json(details);
+    } catch (error) {
+        console.error(`[Chat Detalhes Erro] Erro ao buscar detalhes para a conversa ${req.params.chatId}:`, error);
+        res.status(500).json({ error: 'Erro ao buscar detalhes da conversa', details: error.message });
+    }
+});
+
+
 // Marcar conversa como visualizada/lida
 router.post('/api/instances/:id/chats/:chatId/seen', checkInstanceReady, async (req, res) => {
     try {

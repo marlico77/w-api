@@ -1979,3 +1979,200 @@ input:checked + .slider:before {
 .mention-tag:hover {
     background-color: rgba(32, 201, 151, 0.3);
 }
+
+/* Painel Lateral de Detalhes do Chat */
+.chat-details-sidebar {
+    width: 320px;
+    background-color: var(--bg-sidebar);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    height: 100%;
+    z-index: 10;
+}
+
+.chat-details-sidebar.hidden {
+    display: none;
+}
+
+.chat-details-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.chat-details-header h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.chat-details-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.chat-details-avatar-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 10px 0;
+}
+
+.chat-details-avatar-img {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background-color: var(--bg-card);
+    background-size: cover;
+    background-position: center;
+    border: 3px solid var(--border);
+    margin-bottom: 15px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%238e94a9"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>');
+}
+
+.chat-details-avatar-section h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 5px 0;
+    word-break: break-word;
+}
+
+.chat-details-avatar-section p {
+    font-size: 0.85rem;
+    margin: 0;
+}
+
+.details-divider {
+    border: 0;
+    height: 1px;
+    background-color: var(--border);
+    margin: 5px 0;
+    opacity: 0.5;
+}
+
+.chat-details-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.details-section-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0;
+}
+
+.details-description-text {
+    font-size: 0.9rem;
+    line-height: 1.45;
+    color: #e2e8f0;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.chat-details-members-list,
+.chat-details-subgroups-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 250px;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+.member-item,
+.subgroup-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: background-color 0.2s;
+}
+
+.subgroup-item {
+    cursor: pointer;
+}
+
+.subgroup-item:hover {
+    background-color: rgba(32, 201, 151, 0.08);
+    border-color: rgba(32, 201, 151, 0.2);
+}
+
+.member-avatar,
+.subgroup-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: var(--bg-card);
+    background-size: cover;
+    background-position: center;
+    flex-shrink: 0;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%238e94a9"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>');
+}
+
+.subgroup-avatar {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%238e94a9"><path d="M16.5 12c1.38 0 2.49-1.12 2.49-2.5S17.88 7 16.5 7C15.12 7 14 8.12 14 9.5s1.12 2.5 2.5 2.5zM9 11c1.66 0 2.99-1.34 2.99-3S10.66 5 9 5C7.34 5 6 6.34 6 8s1.34 3 3 3zm7.5 3c-1.83 0-5.5.92-5.5 2.75V19h11v-2.25c0-1.83-3.67-2.75-5.5-2.75zM9 13c-2.33 0-7 1.17-7 3.5V19h7v-2.25c0-.85.35-2.52 0-3.75z"/></svg>');
+}
+
+.member-info,
+.subgroup-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.member-name,
+.subgroup-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.member-phone {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.member-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    background-color: rgba(32, 201, 151, 0.2);
+    color: var(--primary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+/* Ajuste responsivo para três colunas */
+@media (max-width: 1200px) {
+    .chat-details-sidebar {
+        position: absolute;
+        right: 0;
+        top: 0;
+        height: 100%;
+        box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+    }
+}
