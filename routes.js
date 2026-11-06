@@ -387,11 +387,12 @@ const checkInstanceReady = (req, res, next) => {
 };
 
 const formatNumber = (number) => {
-    if (typeof number !== 'string' || !/^\d{10,15}(?:@c\.us)?$/.test(number)) {
-        throw new Error('Informe um número individual válido com DDI (10 a 15 dígitos).');
+    if (typeof number !== 'string' || !/^(?:\d{10,15}(?:@c\.us)?|\d{5,24}@lid)$/.test(number)) {
+        throw new Error('Informe um número individual com DDI ou um identificador @lid de conversa existente.');
     }
     return number.includes('@') ? number : `${number}@c.us`;
 };
+const contactKey = (chatId) => chatId.endsWith('@lid') ? chatId : chatId.split('@')[0];
 
 // Enviar Mensagem
 router.post('/api/instances/:id/send-message', checkInstanceReady, async (req, res) => {
@@ -400,8 +401,8 @@ router.post('/api/instances/:id/send-message', checkInstanceReady, async (req, r
 
     try {
         const formattedNumber = formatNumber(number);
-        const response = await db.withOutboundPermit(req.params.id, formattedNumber.split('@')[0],
-            () => req.waInstance.client.sendMessage(formattedNumber, message));
+        const response = await db.withOutboundPermit(req.params.id, contactKey(formattedNumber),
+            () => req.waInstance.client.sendMessage(formattedNumber, message), 'reply');
         
         addMessageLog(req.params.id, {
             id: response.id.id,
@@ -436,8 +437,8 @@ router.post('/api/instances/:id/send-media', checkInstanceReady, async (req, res
             return res.status(400).json({ error: 'Forneça "url" OU "base64" + "mimetype".' });
         }
 
-        const response = await db.withOutboundPermit(req.params.id, formattedNumber.split('@')[0],
-            () => req.waInstance.client.sendMessage(formattedNumber, media, { caption }));
+        const response = await db.withOutboundPermit(req.params.id, contactKey(formattedNumber),
+            () => req.waInstance.client.sendMessage(formattedNumber, media, { caption }), 'reply');
         
         addMessageLog(req.params.id, {
             id: response.id.id,
@@ -581,6 +582,15 @@ router.post('/api/instances/:id/contacts/:number/consent', checkInstanceOwnershi
     }
 });
 
+router.delete('/api/instances/:id/contacts/:number/consent', checkInstanceOwnership, async (req, res) => {
+    try {
+        await db.optOutContact(req.params.id, req.params.number);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Falha ao registrar pedido de saída.' });
+    }
+});
+
 // Criar Campanha
 router.post('/api/campaigns', async (req, res) => {
     if (process.env.ENABLE_CAMPAIGNS !== 'true') return res.status(403).json({ error: 'Campanhas desativadas neste servidor.' });
@@ -638,6 +648,24 @@ router.get('/api/campaigns/:id/contacts', async (req, res) => {
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
+});
+
+router.get('/api/campaigns/:id/queue/review', async (req, res) => {
+    const campaigns = await db.getCampaigns(req.user.username, req.user.role);
+    if (!campaigns.some(c => String(c.id) === req.params.id)) return res.status(403).json({ error: 'Acesso negado.' });
+    res.json(await db.getQueueItemsNeedingReview(req.params.id));
+});
+
+router.post('/api/campaigns/:id/queue/:itemId/resolve', async (req, res) => {
+    const { status, note } = req.body;
+    if (!['sent', 'failed'].includes(status) || typeof note !== 'string' || note.trim().length < 8 || note.length > 500) {
+        return res.status(400).json({ error: 'Informe status sent ou failed e uma nota de revisão (8 a 500 caracteres).' });
+    }
+    const campaigns = await db.getCampaigns(req.user.username, req.user.role);
+    if (!campaigns.some(c => String(c.id) === req.params.id)) return res.status(403).json({ error: 'Acesso negado.' });
+    const resolved = await db.resolveQueueItem(req.params.id, req.params.itemId, status, note.trim());
+    if (!resolved) return res.status(404).json({ error: 'Item não encontrado ou já revisado.' });
+    res.json({ success: true });
 });
 
 // Listar Campanhas
@@ -774,8 +802,8 @@ router.post('/api/v1/instances/:id/send-text', apiKeyMiddleware, checkInstanceRe
 
     try {
         const formattedNumber = formatNumber(number);
-        const response = await db.withOutboundPermit(req.params.id, formattedNumber.split('@')[0],
-            () => req.waInstance.client.sendMessage(formattedNumber, message));
+        const response = await db.withOutboundPermit(req.params.id, contactKey(formattedNumber),
+            () => req.waInstance.client.sendMessage(formattedNumber, message), 'reply');
         res.status(200).json({ success: true, messageId: response.id.id, timestamp: new Date() });
     } catch (error) {
         res.status(sendStatus(error)).json({ error: 'Falha ao enviar mensagem', details: error.message });
@@ -797,8 +825,8 @@ router.post('/api/v1/instances/:id/send-media', apiKeyMiddleware, checkInstanceR
             return res.status(400).json({ error: 'Forneça "url" OU "base64" + "mimetype".' });
         }
 
-        const response = await db.withOutboundPermit(req.params.id, formattedNumber.split('@')[0],
-            () => req.waInstance.client.sendMessage(formattedNumber, media, { caption }));
+        const response = await db.withOutboundPermit(req.params.id, contactKey(formattedNumber),
+            () => req.waInstance.client.sendMessage(formattedNumber, media, { caption }), 'reply');
         
         addMessageLog(req.params.id, {
             id: response.id.id,
