@@ -10,6 +10,7 @@ const { Pool } = require('pg');
 require('dotenv').config();
 const crypto = require('crypto');
 const { outboundLimitReached } = require('./outboundPolicy');
+const { classifyOutboundContact } = require('./contactPolicy');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -69,12 +70,15 @@ const initDb = async () => {
         // Existing contacts have no verifiable consent record. Require a fresh confirmation.
         await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ`);
         await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_source TEXT`);
+        await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ`);
         await pool.query(`CREATE TABLE IF NOT EXISTS outbound_sends (
             id BIGSERIAL PRIMARY KEY,
             instance_id TEXT NOT NULL,
             contact_number TEXT NOT NULL,
+            purpose TEXT NOT NULL DEFAULT 'outreach',
             sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`);
+        await pool.query(`ALTER TABLE outbound_sends ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'outreach'`);
         await pool.query(`CREATE INDEX IF NOT EXISTS outbound_sends_instance_time_idx ON outbound_sends (instance_id, sent_at DESC)`);
         await pool.query(`CREATE INDEX IF NOT EXISTS outbound_sends_contact_time_idx ON outbound_sends (instance_id, contact_number, sent_at DESC)`);
         await pool.query('ALTER TABLE outbound_sends ENABLE ROW LEVEL SECURITY');
@@ -107,6 +111,9 @@ const initDb = async () => {
             contact_number TEXT,
             status TEXT DEFAULT 'pending'
         )`);
+        await pool.query('ALTER TABLE campaign_queue ADD COLUMN IF NOT EXISTS processing_at TIMESTAMPTZ');
+        await pool.query('ALTER TABLE campaign_queue ADD COLUMN IF NOT EXISTS review_note TEXT');
+        await pool.query('ALTER TABLE campaign_queue ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ');
 
         await pool.query(`CREATE TABLE IF NOT EXISTS projects (
             id SERIAL PRIMARY KEY,
@@ -364,7 +371,7 @@ const updateCampaignStatus = async (id, status) => {
 };
 
 const getNextQueueItem = async (campaignId) => {
-    const res = await pool.query(`UPDATE campaign_queue SET status = 'processing' WHERE id = (
+    const res = await pool.query(`UPDATE campaign_queue SET status = 'processing', processing_at = NOW() WHERE id = (
         SELECT id FROM campaign_queue WHERE campaign_id = $1 AND status = 'pending'
         ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1
     ) RETURNING *`, [campaignId]);
@@ -378,10 +385,29 @@ const hasProcessingQueueItems = async (campaignId) => {
 
 const recoverInterruptedQueueItems = async () => {
     // The previous process may have sent these before crashing. Never resend automatically.
-    await pool.query("UPDATE campaign_queue SET status = 'needs_review' WHERE status = 'processing'");
+    await pool.query("UPDATE campaign_queue SET status = 'needs_review' WHERE status = 'processing' AND (processing_at IS NULL OR processing_at < NOW() - INTERVAL '10 minutes')");
 };
 
-const withOutboundPermit = async (instanceId, number, send) => {
+const getQueueItemsNeedingReview = async (campaignId) => {
+    const res = await pool.query(`SELECT id, contact_number, status, processing_at FROM campaign_queue
+        WHERE campaign_id = $1 AND status = 'needs_review' ORDER BY id LIMIT 100`, [campaignId]);
+    return res.rows;
+};
+
+const hasQueueItemsNeedingReview = async (campaignId) => {
+    const res = await pool.query("SELECT 1 FROM campaign_queue WHERE campaign_id = $1 AND status = 'needs_review' LIMIT 1", [campaignId]);
+    return res.rowCount > 0;
+};
+
+const resolveQueueItem = async (campaignId, itemId, status, note) => {
+    const res = await pool.query(`UPDATE campaign_queue SET status = $3, review_note = $4, reviewed_at = NOW()
+        WHERE campaign_id = $1 AND id = $2 AND status = 'needs_review' RETURNING id`,
+        [campaignId, itemId, status, note]);
+    return res.rowCount > 0;
+};
+
+const withOutboundPermit = async (instanceId, number, send, mode = 'outreach') => {
+    if (!['outreach', 'reply'].includes(mode)) throw new Error('Modo de envio inválido');
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -392,27 +418,31 @@ const withOutboundPermit = async (instanceId, number, send) => {
             error.code = 'SEND_PAUSED';
             throw error;
         }
-        const consent = await client.query(`SELECT 1 FROM contacts WHERE instance_id = $1 AND number = $2
-            AND opt_in = 1 AND opt_out = 0 AND consent_at IS NOT NULL`, [instanceId, number]);
-        if (!consent.rowCount) {
-            const error = new Error('Contato sem consentimento explícito registrado ou com opt-out');
+        const contact = await client.query(`SELECT opt_in, opt_out, consent_at, last_inbound_at
+            FROM contacts WHERE instance_id = $1 AND number = $2`, [instanceId, number]);
+        const state = contact.rows[0];
+        const purpose = classifyOutboundContact(state, mode);
+        if (!purpose) {
+            const error = new Error('Contato sem conversa recente ou consentimento registrado, ou com opt-out');
             error.code = 'NO_CONSENT';
             throw error;
         }
         const limits = await client.query(`SELECT
             MAX(sent_at) AS last_sent,
             COUNT(*) FILTER (WHERE sent_at >= NOW() - INTERVAL '24 hours')::int AS sent_day,
-            COUNT(DISTINCT contact_number) FILTER (WHERE sent_at >= NOW() - INTERVAL '24 hours')::int AS unique_day,
-            COUNT(*) FILTER (WHERE contact_number = $2 AND sent_at >= NOW() - INTERVAL '24 hours')::int AS contact_day
+            COUNT(DISTINCT contact_number) FILTER (WHERE purpose = 'outreach')::int AS unique_day,
+            COUNT(*) FILTER (WHERE purpose = 'outreach')::int AS outreach_day,
+            COUNT(*) FILTER (WHERE contact_number = $2)::int AS contact_day,
+            COUNT(*) FILTER (WHERE contact_number = $2 AND purpose = 'outreach')::int AS outreach_contact_day
             FROM outbound_sends WHERE instance_id = $1 AND sent_at >= NOW() - INTERVAL '24 hours'`, [instanceId, number]);
         const row = limits.rows[0];
-        if (outboundLimitReached(row)) {
+        if (outboundLimitReached(row, purpose)) {
             const error = new Error('Limite de envio atingido: aguarde antes de tentar novamente');
             error.code = 'SEND_LIMIT';
             throw error;
         }
         const result = await send();
-        await client.query('INSERT INTO outbound_sends (instance_id, contact_number) VALUES ($1, $2)', [instanceId, number]);
+        await client.query('INSERT INTO outbound_sends (instance_id, contact_number, purpose) VALUES ($1, $2, $3)', [instanceId, number, purpose]);
         await client.query('COMMIT');
         return result;
     } catch (error) {
@@ -426,6 +456,13 @@ const withOutboundPermit = async (instanceId, number, send) => {
     } finally {
         client.release();
     }
+};
+
+const recordInboundMessage = async (instanceId, number) => {
+    if (!/^(?:\d{10,15}|\d{5,24}@lid)$/.test(number)) return;
+    await pool.query(`INSERT INTO contacts (instance_id, number, opt_in, opt_out, last_inbound_at)
+        VALUES ($1, $2, 0, 0, NOW())
+        ON CONFLICT (instance_id, number) DO UPDATE SET last_inbound_at = NOW()`, [instanceId, number]);
 };
 
 const getOutboundPause = async (instanceId) => {
@@ -636,7 +673,11 @@ module.exports = {
     getNextQueueItem,
     hasProcessingQueueItems,
     recoverInterruptedQueueItems,
+    getQueueItemsNeedingReview,
+    hasQueueItemsNeedingReview,
+    resolveQueueItem,
     withOutboundPermit,
+    recordInboundMessage,
     getOutboundPause,
     clearOutboundPause,
     updateQueueStatus,
