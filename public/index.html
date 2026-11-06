@@ -727,7 +727,7 @@ echo $response;</pre>
                                 </li>
                                 <li>
                                     <strong style="color:#2ecc71;"><i class="fa-solid fa-hourglass-half"></i> 2.2. Throttling (Atraso Anti-Spam Nativo)</strong><br>
-                                    As campanhas não disparam mensagens simultâneas. O nosso Motor de Fila gerencia a carga e impõe um <strong>cooldown fixo de 25 segundos</strong> entre cada mensagem de uma mesma instância. Se você enviar para 1000 pessoas, o robô respeitará o limite de ~2 mensagens por minuto, mantendo a reputação do seu chip (Quality Rating) sempre verde no algoritmo da Meta.
+                                    Campanhas ficam desativadas por padrão. Quando habilitadas, exigem consentimento registrado por destinatário e respeitam os limites de 120 segundos entre envios, 20 mensagens e 5 destinatários diferentes por instância em 24 horas. Esses controles não garantem que o WhatsApp não restringirá a conta.
                                 </li>
                                 <li>
                                     <strong style="color:#e74c3c;"><i class="fa-solid fa-user-slash"></i> 2.3. Opt-out Automático (Descadastro Imediato)</strong><br>
@@ -1221,3 +1221,4 @@ echo $response;</pre>
     <script src="app.js"></script>
 </body>
 </html>
+

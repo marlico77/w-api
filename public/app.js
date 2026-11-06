@@ -519,16 +519,31 @@ window.loadInstanceContactsForCampaign = async (instanceId) => {
         
         box.innerHTML = '';
         loadedSavedContacts.forEach(c => {
+            const consented = c.opt_in === 1 && c.opt_out !== 1 && !!c.consent_at;
             box.innerHTML += `
                 <label style="display:flex; align-items:center; gap:10px; margin-bottom:8px; cursor:pointer; padding: 5px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-                    <input type="checkbox" class="camp-contact-cb" value="${c.number}" style="width: 16px; height: 16px; accent-color: var(--primary); cursor:pointer; flex-shrink: 0; margin: 0;"> 
+                    <input type="checkbox" class="camp-contact-cb" value="${escapeHTML(c.number)}" ${consented ? '' : 'disabled'} style="width: 16px; height: 16px; accent-color: var(--primary); cursor:pointer; flex-shrink: 0; margin: 0;"> 
                     <div style="display:flex; flex-direction:column; align-items:flex-start; text-align: left;">
-                        <span style="color:#fff; font-weight:500; font-size:0.9rem;">${c.name}</span>
-                        <small style="color:var(--text-muted); font-size:0.8rem;">${formatWhatsAppNumber(c.number)}</small>
+                        <span style="color:#fff; font-weight:500; font-size:0.9rem;">${escapeHTML(c.name || c.number)}</span>
+                        <small style="color:var(--text-muted); font-size:0.8rem;">${escapeHTML(formatWhatsAppNumber(c.number))} — ${consented ? 'consentimento registrado' : 'sem consentimento'}</small>
                     </div>
+                    ${consented ? '' : `<button type="button" class="consent-button" data-number="${escapeHTML(c.number)}">Registrar consentimento</button>`}
                 </label>
             `;
         });
+        box.querySelectorAll('.consent-button').forEach(button => button.addEventListener('click', async event => {
+            event.preventDefault();
+            const source = prompt('Onde e quando este contato autorizou receber mensagens desta empresa pelo WhatsApp?');
+            if (!source) return;
+            const response = await fetch(`${API_BASE}/api/instances/${encodeURIComponent(instanceId)}/contacts/${encodeURIComponent(button.dataset.number)}/consent`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source })
+            });
+            if (!response.ok) {
+                alert((await response.json()).error || 'Falha ao registrar consentimento.');
+                return;
+            }
+            await loadInstanceContactsForCampaign(instanceId);
+        }));
     } catch (e) {
         box.innerHTML = 'Erro ao carregar';
     }
@@ -2483,3 +2498,4 @@ window.deleteUser = async (username) => {
 // Init
 checkSession();
 initGoogleLogin();
+

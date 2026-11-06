@@ -51,6 +51,9 @@ function addMessageLog(instanceId, msg) {
 
 async function createInstance(configData) {
     const instanceId = configData.id;
+    if (typeof instanceId !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(instanceId)) {
+        throw new Error('ID da instância deve conter apenas letras, números, _ ou - (até 64 caracteres)');
+    }
     if (instances.has(instanceId)) throw new Error('Instância já existe');
 
     // Salvar no BD
@@ -346,7 +349,8 @@ async function deleteInstance(instanceId) {
     instances.delete(instanceId);
     await db.deleteInstanceDb(instanceId);
 
-    const folderPath = path.join(__dirname, '.wwebjs_auth', `session-${instanceId}`);
+    const safeClientId = String(instanceId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const folderPath = path.join(__dirname, '.wwebjs_auth', `session-${safeClientId}`);
     try {
         if (fs.existsSync(folderPath)) {
             fs.rmSync(folderPath, { recursive: true, force: true });
@@ -475,3 +479,4 @@ module.exports = {
     MessageMedia,
     getMentionsMetadata
 };
+

@@ -6,7 +6,7 @@
 const db = require('./database');
 const { instances } = require('./whatsappClient');
 
-const DELAY_BETWEEN_MESSAGES_MS = 25000; // 25 segundos
+const DELAY_BETWEEN_MESSAGES_MS = 120000;
 let circuitBreakers = {}; // instanceId -> timestamp until paused
 let lastSendTimes = {}; // instanceId -> timestamp do último envio
 let isProcessing = false;
@@ -92,7 +92,7 @@ async function processQueue() {
                     continue; 
                 }
 
-                // 2. Checar Delay de Throttling da instância (Ex: 25 segundos)
+                // 2. Checar intervalo mínimo entre envios da instância.
                 const lastSend = lastSendTimes[campaign.instance_id] || 0;
                 if (now - lastSend < DELAY_BETWEEN_MESSAGES_MS) {
                     continue; // Pula essa instância nesta rodada do loop (cooldown em andamento)
@@ -112,9 +112,6 @@ async function processQueue() {
                 const nextItem = await db.getNextQueueItem(campaign.id);
                 
                 if (nextItem) {
-                    // Bloqueio preventivo (lock state em banco) para evitar duplo processamento
-                    await db.updateQueueStatus(nextItem.id, 'processing');
-
                     // 4. Checar Opt-Out Rígido
                     const contact = await db.getContactByNumber(campaign.instance_id, nextItem.contact_number);
                     if (contact && contact.opt_out === 1) {
@@ -126,7 +123,8 @@ async function processQueue() {
                     console.log(`[Queue PG] Campanha #${campaign.id}: Disparando mensagem para ${nextItem.contact_number}`);
                     try {
                         const chatId = nextItem.contact_number.includes('@') ? nextItem.contact_number : `${nextItem.contact_number}@c.us`;
-                        await instance.client.sendMessage(chatId, campaign.message);
+                        await db.withOutboundPermit(campaign.instance_id, nextItem.contact_number.split('@')[0],
+                            () => instance.client.sendMessage(chatId, campaign.message));
                         
                         await db.updateQueueStatus(nextItem.id, 'sent');
                         
@@ -135,7 +133,8 @@ async function processQueue() {
 
                     } catch (err) {
                         console.error(`[Queue PG] Falha ao enviar para ${nextItem.contact_number}:`, err.message);
-                        await db.updateQueueStatus(nextItem.id, 'failed');
+                        await db.updateQueueStatus(nextItem.id,
+                            ['SEND_LIMIT', 'SEND_PAUSED'].includes(err.code) ? 'pending' : err.code === 'NO_CONSENT' ? 'cancelled_no_consent' : 'needs_review');
                         
                         // Circuit Breaker: Desconexão por violação ou queda
                         if (err.message.includes('Session closed') || err.message.includes('disconnected')) {
@@ -144,6 +143,7 @@ async function processQueue() {
                         }
                     }
                 } else {
+                    if (await db.hasProcessingQueueItems(campaign.id)) continue;
                     // Fila Vazia para esta campanha (Todos em sent, failed ou cancelled)
                     if (campaign.is_recurring) {
                         let parsedDays = [];
@@ -176,10 +176,17 @@ async function processQueue() {
 }
 
 function startScheduler() {
-    console.log('[Sistema] Motor de Fila Nativa (PostgreSQL) + Throttling 25s ativado.');
+    if (process.env.ENABLE_CAMPAIGNS !== 'true') {
+        console.log('[Sistema] Campanhas desativadas. Defina ENABLE_CAMPAIGNS=true somente após revisar consentimentos e políticas do WhatsApp.');
+        return;
+    }
+    console.log('[Sistema] Motor de campanhas ativado com limites de envio e consentimento obrigatório.');
     // Loop ágil: roda a cada 5 segundos para verificar o banco de dados. 
     // O Rate Limit é imposto pela variável `lastSendTimes` por instância.
-    setInterval(processQueue, 5000);
+    db.recoverInterruptedQueueItems().then(() => setInterval(processQueue, 5000)).catch(error => {
+        console.error('[Queue PG] Falha na recuperação da fila:', error);
+    });
 }
 
 module.exports = { startScheduler };
+

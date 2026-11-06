@@ -13,6 +13,7 @@ const db = require('./database');
 const crypto = require('crypto');
 
 const router = express.Router();
+const sendStatus = (error) => error.code === 'NO_CONSENT' ? 403 : error.code === 'SEND_LIMIT' || error.code === 'SEND_PAUSED' ? 429 : 500;
 
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 
@@ -29,7 +30,9 @@ function verifyToken(token) {
         const payload = JSON.parse(payloadStr);
         
         const expectedSignature = crypto.createHmac('sha256', JWT_SECRET).update(payloadStr).digest('hex');
-        if (signature !== expectedSignature) return null;
+        const actual = Buffer.from(signature || '', 'hex');
+        const expected = Buffer.from(expectedSignature, 'hex');
+        if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return null;
         
         if (Date.now() > payload.expires) return null;
         
@@ -39,7 +42,7 @@ function verifyToken(token) {
     }
 }
 
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     let token = authHeader && authHeader.split(' ')[1];
     
@@ -56,8 +59,14 @@ const authMiddleware = (req, res, next) => {
         return res.status(401).json({ error: 'Sessão expirada ou token inválido.' });
     }
     
-    req.user = decoded;
-    next();
+    try {
+        const currentUser = await db.getUserByUsername(decoded.username);
+        if (!currentUser) return res.status(401).json({ error: 'Usuário não encontrado.' });
+        req.user = currentUser;
+        next();
+    } catch (error) {
+        next(error);
+    }
 };
 
 const checkInstanceOwnership = (req, res, next) => {
@@ -93,9 +102,9 @@ router.post('/api/auth/login', async (req, res) => {
 });
 
 router.post('/api/auth/register', async (req, res) => {
-    const { fullName, cpf, address, email, username, password, googleId } = req.body;
+    const { fullName, cpf, address, email, username, password } = req.body;
     
-    if (!fullName || !cpf || !address || !email || !username) {
+    if (!fullName || !cpf || !address || !email || !username || !password || password.length < 12) {
         return res.status(400).json({ error: 'Todos os campos obrigatórios devem ser informados.' });
     }
     
@@ -110,7 +119,7 @@ router.post('/api/auth/register', async (req, res) => {
             return res.status(400).json({ error: 'Este e-mail já está cadastrado.' });
         }
         
-        await db.createUser(fullName, cpf, address, email, username, password, googleId);
+        await db.createUser(fullName, cpf, address, email, username, password);
         res.status(201).json({ success: true, message: 'Usuário cadastrado com sucesso.' });
     } catch (e) {
         res.status(500).json({ error: 'Erro ao cadastrar usuário', details: e.message });
@@ -136,6 +145,11 @@ router.post('/api/auth/google', async (req, res) => {
     try {
         const response = await axios.get(`https://oauth2.googleapis.com/tokeninfo?id_token=${token}`);
         const payload = response.data;
+        if (!process.env.GOOGLE_CLIENT_ID || payload.aud !== process.env.GOOGLE_CLIENT_ID ||
+            !['accounts.google.com', 'https://accounts.google.com'].includes(payload.iss) ||
+            ![true, 'true'].includes(payload.email_verified)) {
+            return res.status(401).json({ error: 'Token Google inválido para este aplicativo.' });
+        }
         
         const googleId = payload.sub;
         const email = payload.email;
@@ -158,15 +172,7 @@ router.post('/api/auth/google', async (req, res) => {
                 user: { username: user.username, role: user.role } 
             });
         } else {
-            return res.json({
-                success: false,
-                requiresRegistration: true,
-                googleData: {
-                    googleId,
-                    email,
-                    name
-                }
-            });
+            return res.status(403).json({ error: 'Cadastre primeiro uma conta com senha e e-mail verificado. Depois, entre com Google para vincular a conta.' });
         }
     } catch (error) {
         console.error('[Google Auth Error]', error.message);
@@ -321,6 +327,15 @@ router.get('/api/instances/:id/status', checkInstanceOwnership, (req, res) => {
     });
 });
 
+router.get('/api/instances/:id/outbound-pause', checkInstanceOwnership, async (req, res) => {
+    res.json({ pause: await db.getOutboundPause(req.params.id) });
+});
+
+router.delete('/api/instances/:id/outbound-pause', checkInstanceOwnership, async (req, res) => {
+    await db.clearOutboundPause(req.params.id);
+    res.json({ success: true });
+});
+
 router.get('/api/instances/:id/config', checkInstanceOwnership, async (req, res) => {
     try {
         const rows = await db.getInstances();
@@ -363,22 +378,19 @@ const checkInstanceReady = (req, res, next) => {
         return res.status(403).json({ error: 'Acesso negado. Você não é dono desta instância.' });
     }
     
-    // Lógica da Configuração Geral (Desabilitar Enfileiramento)
-    if (instance.opt_disable_queue && instance.status !== 'CONNECTED') {
-        return res.status(503).json({ error: 'Envio rejeitado: Cliente offline e o enfileiramento está desabilitado.' });
+    if (instance.status !== 'CONNECTED') {
+        return res.status(503).json({ error: 'Instância desconectada. Envio suspenso.' });
     }
-    
-    // Se o enfileiramento não estiver desabilitado, deixamos a msg passar para o whatsapp-web.js (que tentará enfileirar)
     
     req.waInstance = instance;
     next();
 };
 
 const formatNumber = (number) => {
-    if (!number.includes('@')) {
-        return `${number}@c.us`;
+    if (typeof number !== 'string' || !/^\d{10,15}(?:@c\.us)?$/.test(number)) {
+        throw new Error('Informe um número individual válido com DDI (10 a 15 dígitos).');
     }
-    return number;
+    return number.includes('@') ? number : `${number}@c.us`;
 };
 
 // Enviar Mensagem
@@ -388,7 +400,8 @@ router.post('/api/instances/:id/send-message', checkInstanceReady, async (req, r
 
     try {
         const formattedNumber = formatNumber(number);
-        const response = await req.waInstance.client.sendMessage(formattedNumber, message);
+        const response = await db.withOutboundPermit(req.params.id, formattedNumber.split('@')[0],
+            () => req.waInstance.client.sendMessage(formattedNumber, message));
         
         addMessageLog(req.params.id, {
             id: response.id.id,
@@ -404,7 +417,7 @@ router.post('/api/instances/:id/send-message', checkInstanceReady, async (req, r
         res.status(200).json({ success: true, messageId: response.id.id });
     } catch (error) {
         console.error('[API Send Message Error]', error);
-        res.status(500).json({ error: 'Falha ao enviar mensagem', details: error.message });
+        res.status(sendStatus(error)).json({ error: 'Falha ao enviar mensagem', details: error.message });
     }
 });
 
@@ -416,16 +429,15 @@ router.post('/api/instances/:id/send-media', checkInstanceReady, async (req, res
     try {
         const formattedNumber = formatNumber(number);
         let media;
-        if (url) {
-            const response = await axios.get(url, { responseType: 'arraybuffer' });
-            media = new MessageMedia(response.headers['content-type'], Buffer.from(response.data, 'binary').toString('base64'), filename || 'file');
-        } else if (base64 && mimetype) {
+        if (url) return res.status(400).json({ error: 'Download remoto de mídia desativado. Envie base64 e mimetype.' });
+        if (base64 && mimetype) {
             media = new MessageMedia(mimetype, base64, filename || 'file');
         } else {
             return res.status(400).json({ error: 'Forneça "url" OU "base64" + "mimetype".' });
         }
 
-        const response = await req.waInstance.client.sendMessage(formattedNumber, media, { caption });
+        const response = await db.withOutboundPermit(req.params.id, formattedNumber.split('@')[0],
+            () => req.waInstance.client.sendMessage(formattedNumber, media, { caption }));
         
         addMessageLog(req.params.id, {
             id: response.id.id,
@@ -441,7 +453,7 @@ router.post('/api/instances/:id/send-media', checkInstanceReady, async (req, res
         res.status(200).json({ success: true, messageId: response.id.id });
     } catch (error) {
         console.error('[API Send Media Error]', error);
-        res.status(500).json({ error: 'Falha ao enviar mídia', details: error.message });
+        res.status(sendStatus(error)).json({ error: 'Falha ao enviar mídia', details: error.message });
     }
 });
 
@@ -469,7 +481,7 @@ router.delete('/api/instances/:id/chats/:chatId/messages/:messageId', checkInsta
 const syncJobs = {}; // Formato: { [instanceId]: { status: 'syncing'|'done', progress: 0, contacts: [] } }
 
 // Iniciar a sincronização de contatos em Background
-router.post('/api/instances/:id/sync-contacts', async (req, res) => {
+router.post('/api/instances/:id/sync-contacts', checkInstanceOwnership, async (req, res) => {
     const id = req.params.id;
     const instance = instances.get(id);
     if (!instance || instance.status !== 'CONNECTED') {
@@ -516,7 +528,7 @@ router.post('/api/instances/:id/sync-contacts', async (req, res) => {
 });
 
 // Verificar status e puxar os contatos baixados
-router.get('/api/instances/:id/raw-contacts', (req, res) => {
+router.get('/api/instances/:id/raw-contacts', checkInstanceOwnership, (req, res) => {
     const id = req.params.id;
     const job = syncJobs[id];
     
@@ -536,7 +548,7 @@ router.get('/api/instances/:id/raw-contacts', (req, res) => {
 });
 
 // Salvar contatos escolhidos no Banco
-router.post('/api/instances/:id/contacts', async (req, res) => {
+router.post('/api/instances/:id/contacts', checkInstanceOwnership, async (req, res) => {
     try {
         const contactsList = req.body.contacts; // Array de objetos { number, name, isGroup }
         await db.saveContacts(req.params.id, contactsList);
@@ -547,7 +559,7 @@ router.post('/api/instances/:id/contacts', async (req, res) => {
 });
 
 // Listar contatos SALVOS no banco para uma instância
-router.get('/api/instances/:id/contacts', async (req, res) => {
+router.get('/api/instances/:id/contacts', checkInstanceOwnership, async (req, res) => {
     try {
         const rows = await db.getContacts(req.params.id);
         res.json(rows);
@@ -556,8 +568,22 @@ router.get('/api/instances/:id/contacts', async (req, res) => {
     }
 });
 
+// O operador registra apenas consentimento obtido fora do sistema, com fonte auditável.
+router.post('/api/instances/:id/contacts/:number/consent', checkInstanceOwnership, async (req, res) => {
+    const source = String(req.body.source || '').trim();
+    if (source.length < 8 || source.length > 500) return res.status(400).json({ error: 'Informe a origem do consentimento (8 a 500 caracteres).' });
+    try {
+        const updated = await db.setContactConsent(req.params.id, req.params.number, source);
+        if (!updated) return res.status(404).json({ error: 'Contato não encontrado. Salve o contato antes.' });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Falha ao registrar consentimento.' });
+    }
+});
+
 // Criar Campanha
 router.post('/api/campaigns', async (req, res) => {
+    if (process.env.ENABLE_CAMPAIGNS !== 'true') return res.status(403).json({ error: 'Campanhas desativadas neste servidor.' });
     const { instanceId, name, message, scheduledAt, contacts, recurrence } = req.body;
     if (!instanceId || !message || !scheduledAt || !contacts || !contacts.length) {
         return res.status(400).json({ error: 'Dados incompletos' });
@@ -580,6 +606,7 @@ router.post('/api/campaigns', async (req, res) => {
 
 // Editar Campanha
 router.put('/api/campaigns/:id', async (req, res) => {
+    if (process.env.ENABLE_CAMPAIGNS !== 'true') return res.status(403).json({ error: 'Campanhas desativadas neste servidor.' });
     const campaignId = req.params.id;
     const { name, message, scheduledAt, contacts, recurrence } = req.body;
     
@@ -747,10 +774,11 @@ router.post('/api/v1/instances/:id/send-text', apiKeyMiddleware, checkInstanceRe
 
     try {
         const formattedNumber = formatNumber(number);
-        const response = await req.waInstance.client.sendMessage(formattedNumber, message);
+        const response = await db.withOutboundPermit(req.params.id, formattedNumber.split('@')[0],
+            () => req.waInstance.client.sendMessage(formattedNumber, message));
         res.status(200).json({ success: true, messageId: response.id.id, timestamp: new Date() });
     } catch (error) {
-        res.status(500).json({ error: 'Falha ao enviar mensagem', details: error.message });
+        res.status(sendStatus(error)).json({ error: 'Falha ao enviar mensagem', details: error.message });
     }
 });
 
@@ -762,16 +790,15 @@ router.post('/api/v1/instances/:id/send-media', apiKeyMiddleware, checkInstanceR
     try {
         const formattedNumber = formatNumber(number);
         let media;
-        if (url) {
-            const response = await axios.get(url, { responseType: 'arraybuffer' });
-            media = new MessageMedia(response.headers['content-type'], Buffer.from(response.data, 'binary').toString('base64'), filename || 'file');
-        } else if (base64 && mimetype) {
+        if (url) return res.status(400).json({ error: 'Download remoto de mídia desativado. Envie base64 e mimetype.' });
+        if (base64 && mimetype) {
             media = new MessageMedia(mimetype, base64, filename || 'file');
         } else {
             return res.status(400).json({ error: 'Forneça "url" OU "base64" + "mimetype".' });
         }
 
-        const response = await req.waInstance.client.sendMessage(formattedNumber, media, { caption });
+        const response = await db.withOutboundPermit(req.params.id, formattedNumber.split('@')[0],
+            () => req.waInstance.client.sendMessage(formattedNumber, media, { caption }));
         
         addMessageLog(req.params.id, {
             id: response.id.id,
@@ -787,7 +814,7 @@ router.post('/api/v1/instances/:id/send-media', apiKeyMiddleware, checkInstanceR
         res.status(200).json({ success: true, messageId: response.id.id });
     } catch (error) {
         console.error('[API Send Media V1 Error]', error);
-        res.status(500).json({ error: 'Falha ao enviar mídia', details: error.message });
+        res.status(sendStatus(error)).json({ error: 'Falha ao enviar mídia', details: error.message });
     }
 });
 
@@ -1037,7 +1064,7 @@ clientEvents.on('qr', ({ instanceId, qr }) => {
 });
 
 // SSE endpoint para atualizações do chat em tempo real
-router.get('/api/instances/:id/chat-sse', (req, res) => {
+router.get('/api/instances/:id/chat-sse', checkInstanceOwnership, (req, res) => {
     const instanceId = req.params.id;
     const instance = instances.get(instanceId);
     if (!instance) return res.status(404).json({ error: 'Instância não encontrada' });
@@ -1335,3 +1362,4 @@ router.get('/api/instances/:id/contacts/:number/registered', checkInstanceReady,
 });
 
 module.exports = router;
+
