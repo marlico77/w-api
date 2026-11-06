@@ -9,17 +9,31 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 const crypto = require('crypto');
+const { outboundLimitReached } = require('./outboundPolicy');
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
-    }
+    ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: true }
 });
 
 function hashPassword(password) {
-    const salt = 'zap-api-salt-2026';
-    return crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
+    const salt = crypto.randomBytes(16).toString('hex');
+    return `scrypt:${salt}:${crypto.scryptSync(password, salt, 64).toString('hex')}`;
+}
+
+function verifyPassword(password, stored) {
+    if (!stored) return false;
+    let actual;
+    if (stored.startsWith('scrypt:')) {
+        const [, salt, hash] = stored.split(':');
+        if (!salt || !hash) return false;
+        actual = crypto.scryptSync(password, salt, 64);
+        return actual.length === Buffer.from(hash, 'hex').length && crypto.timingSafeEqual(actual, Buffer.from(hash, 'hex'));
+    }
+    // Legacy hashes remain usable until the next successful login.
+    actual = crypto.pbkdf2Sync(password, 'zap-api-salt-2026', 1000, 64, 'sha512');
+    const expected = Buffer.from(stored, 'hex');
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
 const initDb = async () => {
@@ -50,8 +64,24 @@ const initDb = async () => {
             UNIQUE(instance_id, number)
         )`);
 
-        await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS opt_in INTEGER DEFAULT 1`);
+        await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS opt_in INTEGER DEFAULT 0`);
         await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS opt_out INTEGER DEFAULT 0`);
+        // Existing contacts have no verifiable consent record. Require a fresh confirmation.
+        await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ`);
+        await pool.query(`ALTER TABLE contacts ADD COLUMN IF NOT EXISTS consent_source TEXT`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS outbound_sends (
+            id BIGSERIAL PRIMARY KEY,
+            instance_id TEXT NOT NULL,
+            contact_number TEXT NOT NULL,
+            sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS outbound_sends_instance_time_idx ON outbound_sends (instance_id, sent_at DESC)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS outbound_sends_contact_time_idx ON outbound_sends (instance_id, contact_number, sent_at DESC)`);
+        await pool.query(`CREATE TABLE IF NOT EXISTS outbound_pauses (
+            instance_id TEXT PRIMARY KEY,
+            reason TEXT NOT NULL,
+            paused_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
 
         await pool.query(`CREATE TABLE IF NOT EXISTS campaigns (
             id SERIAL PRIMARY KEY,
@@ -116,13 +146,21 @@ const initDb = async () => {
 
         const userCheck = await pool.query("SELECT COUNT(*) FROM users");
         if (parseInt(userCheck.rows[0].count, 10) === 0) {
-            const adminPassHash = hashPassword('admin123');
-            const nowStr = new Date().toLocaleString('pt-BR');
-            await pool.query("INSERT INTO users (username, password_hash, created_at, role) VALUES ($1, $2, $3, 'ADMINISTRADOR')", ['ADMINISTRADOR', adminPassHash, nowStr]);
-            console.log('✅ Seeded default user ADMINISTRADOR with password admin123');
+            if (!process.env.INITIAL_ADMIN_PASSWORD || process.env.INITIAL_ADMIN_PASSWORD.length < 16) {
+                throw new Error('Set INITIAL_ADMIN_PASSWORD (at least 16 characters) before first startup');
+            }
+            await pool.query("INSERT INTO users (username, password_hash, created_at, role) VALUES ($1, $2, $3, 'ADMINISTRADOR')", ['ADMINISTRADOR', hashPassword(process.env.INITIAL_ADMIN_PASSWORD), new Date().toISOString()]);
+            console.log('✅ Initial administrator created');
         } else {
             // Garante que o administrador padrão possui papel de ADMINISTRADOR
             await pool.query(`UPDATE users SET role = 'ADMINISTRADOR' WHERE username = 'ADMINISTRADOR'`);
+            const admin = await pool.query("SELECT password_hash FROM users WHERE username = 'ADMINISTRADOR'");
+            if (admin.rows[0] && verifyPassword('admin123', admin.rows[0].password_hash)) {
+                if (!process.env.INITIAL_ADMIN_PASSWORD || process.env.INITIAL_ADMIN_PASSWORD.length < 16) {
+                    throw new Error('Default admin password detected. Set INITIAL_ADMIN_PASSWORD (at least 16 characters) to replace it');
+                }
+                await pool.query("UPDATE users SET password_hash = $1 WHERE username = 'ADMINISTRADOR'", [hashPassword(process.env.INITIAL_ADMIN_PASSWORD)]);
+            }
         }
 
         // Atualização preventiva de recursos legados sem proprietário
@@ -132,6 +170,7 @@ const initDb = async () => {
         console.log('✅ PostgreSQL tables checked/created successfully');
     } catch (err) {
         console.error('❌ Error initializing database:', err);
+        throw err;
     }
 };
 
@@ -323,8 +362,77 @@ const updateCampaignStatus = async (id, status) => {
 };
 
 const getNextQueueItem = async (campaignId) => {
-    const res = await pool.query("SELECT * FROM campaign_queue WHERE campaign_id = $1 AND status = 'pending' LIMIT 1", [campaignId]);
+    const res = await pool.query(`UPDATE campaign_queue SET status = 'processing' WHERE id = (
+        SELECT id FROM campaign_queue WHERE campaign_id = $1 AND status = 'pending'
+        ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1
+    ) RETURNING *`, [campaignId]);
     return res.rows[0];
+};
+
+const hasProcessingQueueItems = async (campaignId) => {
+    const res = await pool.query("SELECT 1 FROM campaign_queue WHERE campaign_id = $1 AND status IN ('processing', 'needs_review') LIMIT 1", [campaignId]);
+    return res.rowCount > 0;
+};
+
+const recoverInterruptedQueueItems = async () => {
+    // The previous process may have sent these before crashing. Never resend automatically.
+    await pool.query("UPDATE campaign_queue SET status = 'needs_review' WHERE status = 'processing'");
+};
+
+const withOutboundPermit = async (instanceId, number, send) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [instanceId]);
+        const pause = await client.query('SELECT reason FROM outbound_pauses WHERE instance_id = $1', [instanceId]);
+        if (pause.rowCount) {
+            const error = new Error(`Envios suspensos: ${pause.rows[0].reason}`);
+            error.code = 'SEND_PAUSED';
+            throw error;
+        }
+        const consent = await client.query(`SELECT 1 FROM contacts WHERE instance_id = $1 AND number = $2
+            AND opt_in = 1 AND opt_out = 0 AND consent_at IS NOT NULL`, [instanceId, number]);
+        if (!consent.rowCount) {
+            const error = new Error('Contato sem consentimento explícito registrado ou com opt-out');
+            error.code = 'NO_CONSENT';
+            throw error;
+        }
+        const limits = await client.query(`SELECT
+            MAX(sent_at) AS last_sent,
+            COUNT(*) FILTER (WHERE sent_at >= NOW() - INTERVAL '24 hours')::int AS sent_day,
+            COUNT(DISTINCT contact_number) FILTER (WHERE sent_at >= NOW() - INTERVAL '24 hours')::int AS unique_day,
+            COUNT(*) FILTER (WHERE contact_number = $2 AND sent_at >= NOW() - INTERVAL '24 hours')::int AS contact_day
+            FROM outbound_sends WHERE instance_id = $1 AND sent_at >= NOW() - INTERVAL '24 hours'`, [instanceId, number]);
+        const row = limits.rows[0];
+        if (outboundLimitReached(row)) {
+            const error = new Error('Limite de envio atingido: aguarde antes de tentar novamente');
+            error.code = 'SEND_LIMIT';
+            throw error;
+        }
+        const result = await send();
+        await client.query('INSERT INTO outbound_sends (instance_id, contact_number) VALUES ($1, $2)', [instanceId, number]);
+        await client.query('COMMIT');
+        return result;
+    } catch (error) {
+        await client.query('ROLLBACK');
+        if (/\b(?:463|475)\b/.test(String(error.message))) {
+            await client.query(`INSERT INTO outbound_pauses (instance_id, reason) VALUES ($1, $2)
+                ON CONFLICT (instance_id) DO UPDATE SET reason = EXCLUDED.reason, paused_at = NOW()`,
+                [instanceId, `Sinal de restrição do WhatsApp: ${String(error.message).slice(0, 200)}`]);
+        }
+        throw error;
+    } finally {
+        client.release();
+    }
+};
+
+const getOutboundPause = async (instanceId) => {
+    const res = await pool.query('SELECT reason, paused_at FROM outbound_pauses WHERE instance_id = $1', [instanceId]);
+    return res.rows[0] || null;
+};
+
+const clearOutboundPause = async (instanceId) => {
+    await pool.query('DELETE FROM outbound_pauses WHERE instance_id = $1', [instanceId]);
 };
 
 const updateQueueStatus = async (id, status) => {
@@ -386,9 +494,24 @@ const validateApiKey = async (apiKey) => {
 };
 
 const validateUser = async (loginIdentifier, password) => {
-    const hash = hashPassword(password);
-    const res = await pool.query("SELECT * FROM users WHERE (UPPER(username) = UPPER($1) OR UPPER(email) = UPPER($1)) AND password_hash = $2", [loginIdentifier, hash]);
+    const res = await pool.query("SELECT * FROM users WHERE UPPER(username) = UPPER($1) OR UPPER(email) = UPPER($1)", [loginIdentifier]);
+    const user = res.rows[0];
+    if (!user || !verifyPassword(password, user.password_hash)) return null;
+    if (!user.password_hash.startsWith('scrypt:')) {
+        await pool.query('UPDATE users SET password_hash = $1 WHERE username = $2', [hashPassword(password), user.username]);
+    }
+    return user;
+};
+
+const getUserByUsername = async (username) => {
+    const res = await pool.query('SELECT username, role FROM users WHERE username = $1', [username]);
     return res.rows[0] || null;
+};
+
+const setContactConsent = async (instanceId, number, source) => {
+    const res = await pool.query(`UPDATE contacts SET opt_in = 1, opt_out = 0, consent_at = NOW(), consent_source = $3
+        WHERE instance_id = $1 AND number = $2 RETURNING id`, [instanceId, number, source]);
+    return res.rowCount > 0;
 };
 
 const changeUserPassword = async (username, newPassword) => {
@@ -398,7 +521,8 @@ const changeUserPassword = async (username, newPassword) => {
 };
 
 const optOutContact = async (instanceId, number) => {
-    await pool.query("UPDATE contacts SET opt_out = 1 WHERE instance_id = $1 AND number = $2", [instanceId, number]);
+    await pool.query(`INSERT INTO contacts (instance_id, number, opt_in, opt_out) VALUES ($1, $2, 0, 1)
+        ON CONFLICT (instance_id, number) DO UPDATE SET opt_in = 0, opt_out = 1, consent_at = NULL`, [instanceId, number]);
 };
 
 const getContactByNumber = async (instanceId, number) => {
@@ -508,6 +632,11 @@ module.exports = {
     getPendingCampaigns,
     updateCampaignStatus,
     getNextQueueItem,
+    hasProcessingQueueItems,
+    recoverInterruptedQueueItems,
+    withOutboundPermit,
+    getOutboundPause,
+    clearOutboundPause,
     updateQueueStatus,
     editCampaign,
     resetCampaignQueue,
@@ -519,6 +648,8 @@ module.exports = {
     updateProject,
     validateApiKey,
     validateUser,
+    getUserByUsername,
+    setContactConsent,
     changeUserPassword,
     logApiRequest,
     getProjectMetrics,
@@ -532,3 +663,4 @@ module.exports = {
     getUserByEmail,
     linkGoogleId
 };
+
