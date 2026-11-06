@@ -77,11 +77,13 @@ const initDb = async () => {
         )`);
         await pool.query(`CREATE INDEX IF NOT EXISTS outbound_sends_instance_time_idx ON outbound_sends (instance_id, sent_at DESC)`);
         await pool.query(`CREATE INDEX IF NOT EXISTS outbound_sends_contact_time_idx ON outbound_sends (instance_id, contact_number, sent_at DESC)`);
+        await pool.query('ALTER TABLE outbound_sends ENABLE ROW LEVEL SECURITY');
         await pool.query(`CREATE TABLE IF NOT EXISTS outbound_pauses (
             instance_id TEXT PRIMARY KEY,
             reason TEXT NOT NULL,
             paused_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`);
+        await pool.query('ALTER TABLE outbound_pauses ENABLE ROW LEVEL SECURITY');
 
         await pool.query(`CREATE TABLE IF NOT EXISTS campaigns (
             id SERIAL PRIMARY KEY,
