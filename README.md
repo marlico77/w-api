@@ -82,7 +82,15 @@ Campanhas ficam desativadas por padrão. Só defina `ENABLE_CAMPAIGNS=true` apó
 
 Se o WhatsApp retornar sinais de restrição `463` ou `475`, os envios da instância são pausados no banco. Consulte `GET /api/instances/[NOME]/outbound-pause`. Depois de investigar a causa e confirmar que a conta pode voltar a operar, um usuário com acesso à instância pode remover a pausa com `DELETE` no mesmo caminho. Não reinicie nem reconecte repetidamente a sessão para tentar contornar uma restrição.
 
-Esta integração usa `whatsapp-web.js`, que não é oficial. Pausas, limites e consentimento reduzem riscos, mas não eliminam a possibilidade de restrição. Para mensagens comerciais automatizadas em produção, avalie a Plataforma oficial do WhatsApp Business.
+Esta integração usa `whatsapp-web.js`, que não é oficial. Pausas, limites e consentimento reduzem riscos, mas não eliminam a possibilidade de restrição. O intervalo e os limites numéricos acima são escolhas internas: a Meta não os publica como patamares seguros. Não use as campanhas deste conector Web como substituto da Plataforma oficial para mensagens comerciais automatizadas em produção.
+
+### Requisitos e melhorias segundo a Meta
+
+A Política de Mensagens do WhatsApp Business exige que o destinatário tenha fornecido o número e aceitado receber mensagens da empresa, com o nome da empresa claro no fluxo de aceitação. Pedidos de interrupção feitos dentro **ou fora** do WhatsApp precisam ser respeitados. A Meta recomenda consentimentos separados por categoria, especialmente para promoções, e acompanhar qualidade, leitura e motivos de bloqueio. O campo `source` atual registra apenas uma declaração do operador; ainda é necessário guardar a prova original, a empresa identificada, a categoria autorizada e a versão do texto aceito no sistema que coletou o consentimento.
+
+Na **Plataforma oficial**, iniciar uma conversa exige um modelo de mensagem aprovado. Mensagens livres respondendo ao usuário são permitidas dentro de 24 horas da última mensagem recebida; fora desse período, usa-se um modelo aprovado. Essas regras técnicas não são implementadas pelo conector `whatsapp-web.js`. Para operar campanhas, o próximo passo arquitetural é adicionar um provedor Cloud API, webhooks de status, modelos aprovados e monitoramento da qualidade do número no WhatsApp Manager. Migração e testes com um número real são necessários antes de habilitar campanhas em produção.
+
+Fontes oficiais: [Política de Mensagens](https://business.whatsapp.com/policy/preview?lang=pt_BR), [boas práticas de marketing](https://whatsappbusiness.com/wp-content/uploads/2026/04/Best-Practices-for-Marketing-Messages-on-WhatsApp-.pdf) e [coleção Cloud API da Meta](https://www.postman.com/meta/whatsapp-business-platform/overview).
 
 ### Enviar Mensagem de Texto (POST)
 Envia uma mensagem de texto simples através de uma instância configurada e conectada.
