@@ -102,6 +102,7 @@ async function processQueue() {
                 if (!instance || instance.status !== 'CONNECTED') {
                     continue; 
                 }
+                if (await db.hasQueueItemsNeedingReview(campaign.id)) continue;
 
                 if (campaign.status === 'pending') {
                     console.log(`[Queue PG] Iniciando Campanha #${campaign.id} (${campaign.name})`);
@@ -124,7 +125,7 @@ async function processQueue() {
                     try {
                         const chatId = nextItem.contact_number.includes('@') ? nextItem.contact_number : `${nextItem.contact_number}@c.us`;
                         await db.withOutboundPermit(campaign.instance_id, nextItem.contact_number.split('@')[0],
-                            () => instance.client.sendMessage(chatId, campaign.message));
+                            () => instance.client.sendMessage(chatId, campaign.message), 'outreach');
                         
                         await db.updateQueueStatus(nextItem.id, 'sent');
                         
@@ -183,7 +184,11 @@ function startScheduler() {
     console.log('[Sistema] Motor de campanhas ativado com limites de envio e consentimento obrigatório.');
     // Loop ágil: roda a cada 5 segundos para verificar o banco de dados. 
     // O Rate Limit é imposto pela variável `lastSendTimes` por instância.
-    db.recoverInterruptedQueueItems().then(() => setInterval(processQueue, 5000)).catch(error => {
+    db.recoverInterruptedQueueItems().then(() => {
+        setInterval(processQueue, 5000);
+        setInterval(() => db.recoverInterruptedQueueItems().catch(error =>
+            console.error('[Queue PG] Falha ao identificar itens interrompidos:', error)), 60000);
+    }).catch(error => {
         console.error('[Queue PG] Falha na recuperação da fila:', error);
     });
 }
