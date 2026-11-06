@@ -131,16 +131,23 @@ async function createInstance(configData) {
     // Lógica Avançada (S-API Features)
     client.on('message', async (msg) => {
         // Ao Receber
-        const payload = { event: 'message_received', instance: instanceId, msg };
-        fireWebhook(configData.wh_message_in, payload);
-
+        if (typeof msg.from === 'string' && (msg.from.endsWith('@c.us') || msg.from.endsWith('@lid'))) {
+            try {
+                await db.recordInboundMessage(instanceId, msg.from.endsWith('@lid') ? msg.from : msg.from.split('@')[0]);
+            } catch (error) {
+                console.error(`[${instanceId}] Falha ao registrar mensagem recebida:`, error);
+                return; // Do not trigger automations before the reply window is recorded.
+            }
+        }
         // Interceptador de Opt-out Automático
         if (msg.body && typeof msg.body === 'string') {
-            const bodyUpper = msg.body.trim().toUpperCase();
-            if (['PARE', 'SAIR', 'STOP', 'CANCELAR', 'NÃO QUERO', 'DESCADASTRAR'].includes(bodyUpper)) {
+            const bodyUpper = msg.body.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                .replace(/[.!?]+$/, '').trim().toUpperCase();
+            if (['PARE', 'PARAR', 'SAIR', 'STOP', 'CANCELAR', 'NAO QUERO', 'DESCADASTRAR',
+                'REMOVER MEU NUMERO', 'NAO ME ENVIE MAIS MENSAGENS'].includes(bodyUpper)) {
                 try {
-                    const senderId = msg.author || msg.from;
-                    const numberOnly = senderId.split('@')[0];
+                    const senderId = String(msg.author || msg.from || '');
+                    const numberOnly = senderId.endsWith('@lid') ? senderId : senderId.split('@')[0];
                     await db.optOutContact(instanceId, numberOnly);
                     console.log(`[OPT-OUT] O contato ${numberOnly} solicitou descadastro da instância ${instanceId}. Fila será bloqueada para ele.`);
                 } catch(e) {
@@ -148,6 +155,9 @@ async function createInstance(configData) {
                 }
             }
         }
+
+        // Dispatch only after opt-out has been persisted, so webhook automations cannot race it.
+        fireWebhook(configData.wh_message_in, { event: 'message_received', instance: instanceId, msg });
 
         // Propaga evento SSE de mensagem recebida com mapeamento robusto
         let senderName = null;
