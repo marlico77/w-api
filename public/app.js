@@ -527,7 +527,7 @@ window.loadInstanceContactsForCampaign = async (instanceId) => {
                         <span style="color:#fff; font-weight:500; font-size:0.9rem;">${escapeHTML(c.name || c.number)}</span>
                         <small style="color:var(--text-muted); font-size:0.8rem;">${escapeHTML(formatWhatsAppNumber(c.number))} — ${consented ? 'consentimento registrado' : 'sem consentimento'}</small>
                     </div>
-                    ${consented ? '' : `<button type="button" class="consent-button" data-number="${escapeHTML(c.number)}">Registrar consentimento</button>`}
+                    ${consented ? `<button type="button" class="optout-button" data-number="${escapeHTML(c.number)}">Registrar saída</button>` : `<button type="button" class="consent-button" data-number="${escapeHTML(c.number)}">Registrar consentimento</button>`}
                 </label>
             `;
         });
@@ -540,6 +540,16 @@ window.loadInstanceContactsForCampaign = async (instanceId) => {
             });
             if (!response.ok) {
                 alert((await response.json()).error || 'Falha ao registrar consentimento.');
+                return;
+            }
+            await loadInstanceContactsForCampaign(instanceId);
+        }));
+        box.querySelectorAll('.optout-button').forEach(button => button.addEventListener('click', async event => {
+            event.preventDefault();
+            if (!confirm('Registrar que este contato não quer mais receber mensagens?')) return;
+            const response = await fetch(`${API_BASE}/api/instances/${encodeURIComponent(instanceId)}/contacts/${encodeURIComponent(button.dataset.number)}/consent`, { method: 'DELETE' });
+            if (!response.ok) {
+                alert((await response.json()).error || 'Falha ao registrar saída.');
                 return;
             }
             await loadInstanceContactsForCampaign(instanceId);
