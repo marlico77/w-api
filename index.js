@@ -17,8 +17,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json({ limit: '200mb' })); 
-app.use(express.urlencoded({ limit: '200mb', extended: true }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ limit: '20mb', extended: true }));
 app.use(express.static('public'));
 app.use('/', routes);
 const db = require('./database');
@@ -31,6 +31,9 @@ const server = app.listen(PORT, async () => {
         await db.initPromise;
     } catch (e) {
         console.error('❌ Falha na inicialização do Banco de Dados:', e);
+        server.close();
+        process.exitCode = 1;
+        return;
     }
     
     // Restaura as sessões antigas que já estavam salvas na máquina
@@ -80,3 +83,4 @@ process.on('message', async (msg) => {
         process.exit(0);
     }
 });
+
